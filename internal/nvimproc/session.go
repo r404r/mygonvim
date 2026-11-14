@@ -23,6 +23,9 @@ type Options struct {
 	Env []string
 	// Dir is the working directory; "" means this process's.
 	Dir string
+	// InitCmds are Ex commands run before the user's init file (nvim --cmd), in
+	// order: what the app presets, for the user's own settings to override.
+	InitCmds []string
 	// Cols and Rows are the grid the UI attaches with.
 	Cols, Rows int
 	// OnRedraw gets each "redraw" notification's updates, on the client's
@@ -88,7 +91,11 @@ func Start(o Options) (*Session, error) {
 	}
 	// 'title' is off by default, and nvim then never sends set_title; --cmd
 	// runs before the user's init file, which may still turn it off.
-	args := append([]string{"--embed", "--cmd", "set title"}, o.Args...)
+	args := []string{"--embed", "--cmd", "set title"}
+	for _, c := range o.InitCmds {
+		args = append(args, "--cmd", c)
+	}
+	args = append(args, o.Args...)
 	cmd := exec.Command(o.Bin, args...)
 	cmd.Env = o.Env
 	if cmd.Env == nil {

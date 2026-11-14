@@ -19,6 +19,8 @@ type Actions struct {
 	Open func()
 	// Quit is the File > Exit item (Windows and Linux).
 	Quit func()
+	// Font, when set, adds the Font menu.
+	Font *FontMenu
 }
 
 // Template returns the menu bar for goos, as runtime.GOOS spells it.
@@ -26,30 +28,35 @@ type Actions struct {
 // macOS keeps the app menu (About, Hide, Quit), Edit and Window, and gets Open...
 // with Cmd+O next to Close. Elsewhere the menu bar has only File, with Open...
 // and Exit, and no shortcut: Ctrl+O is Neovim's jump list, and Ctrl+Q and Ctrl+W
-// are Neovim's too, so the menu must not take them.
+// are Neovim's too, so the menu must not take them. With a.Font set there is a
+// Font menu after File (Windows) or after Edit (macOS); it has no shortcuts either.
 func Template(goos string, a Actions) []*mygo.MenuItem {
 	open := &mygo.MenuItem{ID: IDOpen, Label: "Open\u2026", Click: func(*mygo.MenuItem, *mygo.Window) {
 		if a.Open != nil {
 			a.Open()
 		}
 	}}
+	var font []*mygo.MenuItem
+	if a.Font != nil {
+		font = []*mygo.MenuItem{fontItem(a.Font)}
+	}
 	if goos == "darwin" {
 		open.Accelerator = "Cmd+O"
-		return []*mygo.MenuItem{
+		bar := []*mygo.MenuItem{
 			{Role: mygo.RoleAppMenu},
 			{Label: "File", Submenu: []*mygo.MenuItem{open, mygo.Separator(), {Role: mygo.RoleClose}}},
 			{Role: mygo.RoleEditMenu},
-			{Role: mygo.RoleWindowMenu},
 		}
+		bar = append(bar, font...)
+		return append(bar, &mygo.MenuItem{Role: mygo.RoleWindowMenu})
 	}
 	exit := &mygo.MenuItem{ID: IDExit, Label: "Exit", Click: func(*mygo.MenuItem, *mygo.Window) {
 		if a.Quit != nil {
 			a.Quit()
 		}
 	}}
-	return []*mygo.MenuItem{
-		{Label: "File", Submenu: []*mygo.MenuItem{open, mygo.Separator(), exit}},
-	}
+	bar := []*mygo.MenuItem{{Label: "File", Submenu: []*mygo.MenuItem{open, mygo.Separator(), exit}}}
+	return append(bar, font...)
 }
 
 // ChooseAndOpen asks the user for files with pick and gives them to open. When

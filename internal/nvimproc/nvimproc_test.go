@@ -275,3 +275,54 @@ func TestOptionDefaultIsNotTheCurrentValue(t *testing.T) {
 		t.Error("an unknown option gave no error")
 	}
 }
+
+// InitCmds run before the user's init file, so the init file can override what
+// the app presets.
+func TestInitCmdsRunBeforeTheInitFile(t *testing.T) {
+	bin := testBin(t)
+	dir := t.TempDir()
+	initFile := filepath.Join(dir, "init.vim")
+	content := "let g:seen = get(g:, 'preset', 'missing')\nlet &guifont = 'User:h20'\n"
+	if err := os.WriteFile(initFile, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Start(Options{
+		Bin: bin, Args: []string{"-u", initFile}, Env: PortableEnv(os.Environ(), filepath.Join(dir, "data")),
+		InitCmds: []string{"let g:preset = 'yes'", "let &guifont = 'Saved:h12'"},
+		Cols:     60, Rows: 12, Logf: t.Logf, OnRedraw: func(...[]any) {},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var seen, guifont string
+	if err := s.Nvim().Var("seen", &seen); err != nil {
+		t.Fatal(err)
+	}
+	if seen != "yes" {
+		t.Errorf("the init file saw g:preset = %q, want the command to have run first", seen)
+	}
+	if err := s.Nvim().Eval("&guifont", &guifont); err != nil {
+		t.Fatal(err)
+	}
+	if guifont != "User:h20" {
+		t.Errorf("guifont is %q, want the init file's setting to win", guifont)
+	}
+}
+
+func TestNoInitCmdsMeansNoExtraArguments(t *testing.T) {
+	bin := testBin(t)
+	dir := t.TempDir()
+	s, err := Start(Options{
+		Bin: bin, Args: []string{"--clean"}, Env: PortableEnv(os.Environ(), filepath.Join(dir, "data")),
+		Cols: 60, Rows: 12, Logf: t.Logf, OnRedraw: func(...[]any) {},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var title int
+	if err := s.Nvim().Eval("&title", &title); err != nil || title != 1 {
+		t.Errorf("'title' = %d, %v; want the built-in --cmd to still run", title, err)
+	}
+}

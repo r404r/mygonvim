@@ -44,7 +44,7 @@ Where nvim is looked for: `-nvim`, `$MYGONVIM_NVIM`, `nvim/bin/nvim[.exe]` or `n
 
 Dropping files from Finder or Explorer on the window opens them: MyGoNVim runs `:confirm drop {files}` with the names escaped as `fnameescape()` does. The first file is shown (or its window is focused if it is already open), and with several files they all go to the argument list. Neovim asks on its command line when the current buffer has unsaved changes. The command is tested against a real Neovim; the drop gesture itself has not been tried on a real macOS or Windows machine. Dropping on the Dock icon, and "Open With", are not handled yet.
 
-**File > Open...** shows the system file dialog (several files can be chosen) and opens the choice the same way as a drop. On macOS the shortcut is Cmd+O, and the app, Edit and Window menus and File > Close stay. On Windows the menu bar has File with Open... and Exit and no shortcuts, so Ctrl+O (jump list), Ctrl+W and Ctrl+Q stay with Neovim; Linux gets the same menu. Cancelling the dialog does nothing. The menu has not been tried on a real macOS or Windows machine.
+**File > Open...** shows the system file dialog (several files can be chosen) and opens the choice the same way as a drop. On macOS the shortcut is Cmd+O, and the app, Edit and Window menus and File > Close stay. On Windows the menu bar has File with Open... and Exit and no shortcuts, so Ctrl+O (jump list), Ctrl+W and Ctrl+Q stay with Neovim; Linux gets the same menu. Both have a Font menu (see Fonts). Cancelling the dialog does nothing. The menu has not been tried on a real macOS or Windows machine.
 
 Closing the window runs `:confirm qa`: Neovim asks about unsaved changes on its own command line, and the window closes when Neovim has quit.
 
@@ -53,12 +53,15 @@ Closing the window runs `:confirm qa`: Neovim asks about unsaved changes on its 
 For the font family and for the size, separately, the first of these that has a value is used:
 
 1. Neovim's `guifont` option, set from `init.lua` (`vim.o.guifont = "JetBrainsMono Nerd Font:h14"`) or on the fly (`:set guifont=Fira_Code:h14`). An empty `guifont` is not a choice: it leaves the next source in effect. Neither is Neovim's own default: since Neovim 0.12 `guifont` starts as a font list for the platform, and MyGoNVim asks Neovim for that default at startup and treats a `guifont` equal to it as empty (until the answer arrives, `guifont` is not used), so that it does not override `-font`.
-2. The `-font` and `-font-size` flags.
-3. The default: `SF Mono, Menlo, monospace` on macOS, `Cascadia Mono, Consolas, monospace` on Windows, `monospace` elsewhere; 14 DIPs.
+2. The font chosen in the **Font** menu, saved in `settings.json` in the app's user data folder (`data/mygonvim/` in portable mode).
+3. The `-font` and `-font-size` flags.
+4. The default: `SF Mono, Menlo, monospace` on macOS, `Cascadia Mono, Consolas, monospace` on Windows, `monospace` elsewhere; 14 DIPs.
 
 `guifont` is read like Neovim does for other GUIs: a comma separated list of fonts (the order is the fallback order), `_` in a name stands for a space, a backslash makes the next character literal, and `:hN` gives the size (a fraction is fine). The size is taken as DIPs, which are points on macOS; how that compares with points on Windows has not been checked. Only the first `:h` counts. `:b` and `:i` are parsed but not used: bold and italic text comes from the highlight groups, and the regular font stays regular. Other options (`:w`, `:c`, `:s`, ...) and `*` are ignored. A generic `monospace` is added at the end of the list, so that a name that is not installed still gives a fixed-width font. Changing the font measures the cells again and asks Neovim for the grid that fits the window.
 
-This is tested with a real Neovim on Linux. A font such as a Nerd Font on a real Mac or Windows machine has not been tried.
+The **Font** menu has a Family group (the fixed-width families the system reports, minus the private ones whose names start with a dot) and a Size group (10 to 28). Choosing an item applies it at once, saves it, and runs `:let &guifont = '...'` in Neovim, so that `:set guifont?` shows the same font and a plugin reading `guifont` sees it. Choosing a size keeps the current font list and changes the size of its first font. When the app starts with a saved family it sets `guifont` in Neovim before your init file runs, so an init file that sets `guifont` still wins; a `guifont` from your init file also outranks the menu's choice from the next start on. The checks in the menu follow the font in use, also when `guifont` changed it. `settings.json` is `{"fontFamily": ..., "fontSize": ...}` and other keys in it are kept; a file that cannot be read is logged and ignored, and the next choice replaces it. The menu has no shortcuts.
+
+This is tested with a real Neovim on Linux. A font such as a Nerd Font on a real Mac or Windows machine has not been tried, nor has the Font menu there (which families it lists, how it looks with many items, whether the radio checks show).
 
 ## Portable mode
 

@@ -20,6 +20,7 @@ import (
 	"github.com/egoist/mygo/ui"
 
 	"github.com/r404r/mygonvim/internal/appmenu"
+	"github.com/r404r/mygonvim/internal/fontcfg"
 	"github.com/r404r/mygonvim/internal/grid"
 	"github.com/r404r/mygonvim/internal/gui"
 	"github.com/r404r/mygonvim/internal/nvimproc"
@@ -102,10 +103,38 @@ func start(opts options) *nvimproc.Session {
 		mygo.App.SetPath(mygo.PathLogs, filepath.Join(app, "logs"))
 	}
 
-	cfg := gui.Config{FontFamily: opts.font, FontSize: float32(opts.fontSize), Cols: 100, Rows: 32}
+	// The font chosen in the menu last time, in settings.json of the user data
+	// folder (data/mygonvim/ in portable mode). A missing file is normal; a
+	// damaged one is reported and ignored, and the next choice replaces it.
+	settingsPath := ""
+	var saved fontcfg.Choice
+	if dir, err := mygo.App.Path(mygo.PathUserData); err != nil {
+		log.Printf("settings: no user data folder, the font choice will not be saved: %v", err)
+	} else {
+		settingsPath = filepath.Join(dir, fontcfg.File)
+		if saved, err = fontcfg.Load(settingsPath); err != nil {
+			log.Printf("settings: ignoring %v", err)
+		}
+	}
+
+	cfg := gui.Config{FontFamily: opts.font, FontSize: float32(opts.fontSize), SavedFont: saved, Cols: 100, Rows: 32}
 	var win atomic.Pointer[mygo.Window]
+	var menu *mygo.Menu
+	var fontMenu *appmenu.FontMenu
 	late := &lateBackend{}
 	ed := gui.NewEditor(late, cfg, gui.Hooks{
+		FontChanged: func(c fontcfg.Choice) {
+			// Whoever changed the font (the menu, 'guifont'), the checks follow.
+			appmenu.SyncFont(menu, fontMenu, fontcfg.FirstFamily(c.Family), c.Size)
+		},
+		SaveFont: func(c fontcfg.Choice) {
+			if settingsPath == "" {
+				return
+			}
+			if err := fontcfg.Save(settingsPath, c); err != nil {
+				log.Printf("settings: cannot save the font: %v", err)
+			}
+		},
 		Invalidate: func() {
 			if w := win.Load(); w != nil {
 				w.Invalidate()
@@ -121,6 +150,7 @@ func start(opts options) *nvimproc.Session {
 	var quitting atomic.Bool
 	sess, err := nvimproc.Start(nvimproc.Options{
 		Bin: bin, Args: opts.files, Env: env, Cols: cfg.Cols, Rows: cfg.Rows,
+		InitCmds: initCmds(saved),
 		OnRedraw: ed.OnRedraw,
 		OnExit: func(err error) {
 			quitting.Store(true)
@@ -162,7 +192,14 @@ func start(opts options) *nvimproc.Session {
 		e.PreventDefault()
 		sess.Command("confirm qa")
 	})
-	mygo.App.SetMenu(mygo.NewMenu(appmenu.Template(runtime.GOOS, appmenu.Actions{
+	cur := ed.Font()
+	fontMenu = &appmenu.FontMenu{
+		Families: appmenu.MonospacedFamilies(ui.FontFamilies()), Sizes: appmenu.DefaultSizes,
+		Family: fontcfg.FirstFamily(cur.Family), Size: cur.Size,
+		SetFamily: ed.ChooseFamily, SetSize: ed.ChooseSize,
+	}
+	menu = mygo.NewMenu(appmenu.Template(runtime.GOOS, appmenu.Actions{
+		Font: fontMenu,
 		// The dialog blocks until it is dismissed, and menu items run on the
 		// main thread: wait for it on a goroutine of its own.
 		Open: func() {
@@ -171,7 +208,8 @@ func start(opts options) *nvimproc.Session {
 			}, ed.OpenFiles, log.Printf)
 		},
 		Quit: mygo.App.Quit,
-	})))
+	}))
+	mygo.App.SetMenu(menu)
 	// Files dropped from Finder or Explorer open in Neovim.
 	w.OnFileDrop(func(e *mygo.FileDropEvent) { ed.OpenFiles(e.Paths) })
 	win.Store(w)
@@ -182,6 +220,15 @@ func start(opts options) *nvimproc.Session {
 	}
 	w.Invalidate()
 	return sess
+}
+
+// initCmds presets Neovim's 'guifont' with the font saved from the menu, ahead
+// of the user's init file.
+func initCmds(saved fontcfg.Choice) []string {
+	if cmd := fontcfg.StartupCommand(saved); cmd != "" {
+		return []string{cmd}
+	}
+	return nil
 }
 
 // fail shows why the editor cannot start: a GUI program started from a menu has

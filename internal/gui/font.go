@@ -132,3 +132,27 @@ func (e *Editor) parseGuiFontLocked() {
 	}
 	e.fontDirty = true
 }
+
+// ChooseFamily is a family picked in the Font menu. Main thread only.
+//
+// The choice is saved, shown at once unless a 'guifont' that Neovim has set
+// still outranks it, and given to Neovim as ":let &guifont = ..." so that
+// Neovim and the menu agree. Nothing here answers the option_set event that
+// follows: the font it describes is the one already in use.
+func (e *Editor) ChooseFamily(name string) {
+	e.choose(fontcfg.Choice{Family: name, Size: e.saved.Size}, []string{name}, e.cur.Size)
+}
+
+// ChooseSize is a size picked in the Font menu, in DIPs: see ChooseFamily. The
+// font list in use stays as it is, with the new size on its first font.
+func (e *Editor) ChooseSize(size float32) {
+	e.choose(fontcfg.Choice{Family: e.saved.Family, Size: size}, fontcfg.Families(fontcfg.WithFallback(e.cur.Family)), size)
+}
+
+func (e *Editor) choose(saved fontcfg.Choice, families []string, size float32) {
+	e.SetSavedFont(saved)
+	if e.hooks.SaveFont != nil {
+		e.hooks.SaveFont(saved)
+	}
+	e.be.Command(fontcfg.SetCommand(families, size))
+}

@@ -47,6 +47,9 @@ type Hooks struct {
 	// FontChanged is called on the main thread when the editor starts to
 	// draw with another font, whoever asked for it.
 	FontChanged func(fontcfg.Choice)
+	// SaveFont stores the font chosen in the menu, to start with next time. A
+	// failure is the hook's to report.
+	SaveFont func(fontcfg.Choice)
 }
 
 // Editor is the view of one Neovim. Create it with NewEditor, give View to the

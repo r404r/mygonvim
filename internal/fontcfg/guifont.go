@@ -162,3 +162,53 @@ func unescape(s string) string {
 	}
 	return b.String()
 }
+
+// StartupCommand is the Ex command that gives Neovim the font saved from the
+// menu before its init file runs, so that Neovim's 'guifont' agrees with the
+// menu and the init file can still override it. It is "" when no family was
+// saved.
+func StartupCommand(saved Choice) string {
+	if saved.Family == "" {
+		return ""
+	}
+	return SetCommand([]string{saved.Family}, saved.Size)
+}
+
+// FormatList is the 'guifont' value for a list of families and a size: the
+// size goes on the first font, as Parse reads it ("Fira Code:h14,Menlo").
+func FormatList(families []string, size float32) string {
+	parts := make([]string, 0, len(families))
+	for _, f := range families {
+		if f = strings.TrimSpace(f); f != "" {
+			parts = append(parts, Format(f, 0))
+		}
+	}
+	if len(parts) == 0 {
+		if size > 0 {
+			return ":h" + strconv.FormatFloat(float64(size), 'f', -1, 32)
+		}
+		return ""
+	}
+	if size > 0 {
+		parts[0] += ":h" + strconv.FormatFloat(float64(size), 'f', -1, 32)
+	}
+	return strings.Join(parts, ",")
+}
+
+// Families splits a family list as ui.Font takes it ("A, B, monospace") into
+// its names.
+func Families(family string) []string {
+	var out []string
+	for _, f := range strings.Split(family, ",") {
+		if f = strings.TrimSpace(f); f != "" {
+			out = append(out, f)
+		}
+	}
+	return out
+}
+
+// SetCommand is the Ex command that sets 'guifont' to the families and size.
+// It assigns a quoted string, so that no name needs escaping for :set.
+func SetCommand(families []string, size float32) string {
+	return "let &guifont = '" + strings.ReplaceAll(FormatList(families, size), "'", "''") + "'"
+}

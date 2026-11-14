@@ -99,3 +99,61 @@ func TestFirstFamily(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatListAndSetCommand(t *testing.T) {
+	cases := []struct {
+		families []string
+		size     float32
+		list     string
+		cmd      string
+	}{
+		{[]string{"Menlo"}, 14, "Menlo:h14", "let &guifont = 'Menlo:h14'"},
+		{[]string{"SF Mono", "Menlo", "monospace"}, 18, "SF Mono:h18,Menlo,monospace", "let &guifont = 'SF Mono:h18,Menlo,monospace'"},
+		{[]string{"Menlo", " "}, 0, "Menlo", "let &guifont = 'Menlo'"},
+		{nil, 16, ":h16", "let &guifont = ':h16'"},
+		{nil, 0, "", "let &guifont = ''"},
+		{[]string{"It's"}, 12, "It's:h12", "let &guifont = 'It''s:h12'"},
+		{[]string{"A,B"}, 12, `A\,B:h12`, `let &guifont = 'A\,B:h12'`},
+	}
+	for _, c := range cases {
+		if got := FormatList(c.families, c.size); got != c.list {
+			t.Errorf("FormatList(%q, %v) = %q, want %q", c.families, c.size, got, c.list)
+		}
+		if got := SetCommand(c.families, c.size); got != c.cmd {
+			t.Errorf("SetCommand(%q, %v) = %q, want %q", c.families, c.size, got, c.cmd)
+		}
+	}
+	// What the command sets is what Parse turns back into the same font.
+	g := Parse(FormatList([]string{"SF Mono", "Menlo", "monospace"}, 18))
+	if !reflect.DeepEqual(g.Families, []string{"SF Mono", "Menlo", "monospace"}) || g.Size != 18 {
+		t.Errorf("round trip lost something: %+v", g)
+	}
+}
+
+func TestFamilies(t *testing.T) {
+	got := Families(" SF Mono , Menlo,, monospace ")
+	if !reflect.DeepEqual(got, []string{"SF Mono", "Menlo", "monospace"}) {
+		t.Errorf("Families = %q", got)
+	}
+	if Families("") != nil || Families(" , ") != nil {
+		t.Error("an empty list should have no names")
+	}
+}
+
+func TestStartupCommand(t *testing.T) {
+	cases := []struct {
+		saved Choice
+		want  string
+	}{
+		{Choice{}, ""},
+		{Choice{Size: 16}, ""}, // a size alone is not worth presetting
+		{Choice{Family: "Menlo"}, "let &guifont = 'Menlo'"},
+		{Choice{Family: "Fira Code", Size: 14}, "let &guifont = 'Fira Code:h14'"},
+		{Choice{Family: "It's", Size: 12}, "let &guifont = 'It''s:h12'"},
+	}
+	for _, c := range cases {
+		if got := StartupCommand(c.saved); got != c.want {
+			t.Errorf("StartupCommand(%+v) = %q, want %q", c.saved, got, c.want)
+		}
+	}
+}
