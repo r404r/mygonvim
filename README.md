@@ -44,6 +44,8 @@ Where nvim is looked for: `-nvim`, `$MYGONVIM_NVIM`, `nvim/bin/nvim[.exe]` or `n
 
 Dropping files from Finder or Explorer on the window opens them: MyGoNVim runs `:confirm drop {files}` with the names escaped as `fnameescape()` does. The first file is shown (or its window is focused if it is already open), and with several files they all go to the argument list. Neovim asks on its command line when the current buffer has unsaved changes. The command is tested against a real Neovim; the drop gesture itself has not been tried on a real macOS or Windows machine. Dropping on the Dock icon, and "Open With", are not handled yet.
 
+**File > Open...** shows the system file dialog (several files can be chosen) and opens the choice the same way as a drop. On macOS the shortcut is Cmd+O, and the app, Edit and Window menus and File > Close stay. On Windows the menu bar has File with Open... and Exit and no shortcuts, so Ctrl+O (jump list), Ctrl+W and Ctrl+Q stay with Neovim; Linux gets the same menu. Cancelling the dialog does nothing. The menu has not been tried on a real macOS or Windows machine.
+
 Closing the window runs `:confirm qa`: Neovim asks about unsaved changes on its own command line, and the window closes when Neovim has quit.
 
 ## Portable mode
@@ -71,7 +73,7 @@ MYGONVIM_SCREENSHOT=shot.png NVIM_BIN=... go test -run RealNvim ./internal/gui
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build .
 ```
 
-Layout: `internal/grid` (screen model from `redraw` events), `internal/input` (keys and IME to `nvim_input` notation), `internal/nvimproc` (find, start and talk to nvim), `internal/openfiles` (paths to the Ex command that opens them), `internal/gui` (the MyGo view that draws the grid). MyGo is pinned in `go.mod` to the release v0.9.0.
+Layout: `internal/grid` (screen model from `redraw` events), `internal/input` (keys and IME to `nvim_input` notation), `internal/nvimproc` (find, start and talk to nvim), `internal/appmenu` (the menu bar), `internal/openfiles` (paths to the Ex command that opens them), `internal/gui` (the MyGo view that draws the grid). MyGo is pinned in `go.mod` to the release v0.9.0.
 
 ## License
 
