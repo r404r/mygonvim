@@ -282,3 +282,51 @@ func BenchmarkFullScreenRedraw(b *testing.B) {
 		m.Apply(batch...)
 	}
 }
+
+func TestOptionSetGuifont(t *testing.T) {
+	m := New(4, 2)
+	guifont := func() (v string) { m.Read(func(s *State) { v = s.GuiFont }); return }
+
+	// Neovim reports the option when the UI attaches, even when it is empty.
+	res := m.Apply(ev("option_set", []any{"guifont", ""}))
+	if res.GuiFontChanged || guifont() != "" {
+		t.Errorf("an empty guifont at attach counted as a change: %+v, %q", res, guifont())
+	}
+	res = m.Apply(ev("option_set", []any{"guifont", "Fira_Code:h14"}))
+	if !res.GuiFontChanged || guifont() != "Fira_Code:h14" {
+		t.Errorf("setting guifont: changed=%v value=%q", res.GuiFontChanged, guifont())
+	}
+	res = m.Apply(ev("option_set", []any{"guifont", "Fira_Code:h14"}))
+	if res.GuiFontChanged {
+		t.Error("the same value again counted as a change")
+	}
+	// Several options in one event, and the ones that are not guifont.
+	res = m.Apply(ev("option_set", []any{"linespace", int64(2)}, []any{"guifont", "Menlo"}, []any{"ambiwidth", "single"}))
+	if !res.GuiFontChanged || guifont() != "Menlo" {
+		t.Errorf("guifont among other options: changed=%v value=%q", res.GuiFontChanged, guifont())
+	}
+	res = m.Apply(ev("option_set", []any{"guifont", ""}))
+	if !res.GuiFontChanged || guifont() != "" {
+		t.Errorf("clearing guifont: changed=%v value=%q", res.GuiFontChanged, guifont())
+	}
+	res = m.Apply(ev("option_set", []any{"linespace", int64(1)}))
+	if res.GuiFontChanged {
+		t.Error("another option counted as a guifont change")
+	}
+}
+
+func TestMalformedOptionSetIsIgnored(t *testing.T) {
+	m := New(4, 2)
+	m.Apply(ev("option_set", []any{"guifont", "Menlo"}))
+	res := m.Apply(
+		ev("option_set", []any{}),
+		ev("option_set", []any{"guifont"}),
+		ev("option_set", []any{int64(1), "x"}),
+		ev("option_set", []any{"guifont", int64(7)}), // not a string: read as empty
+	)
+	var v string
+	m.Read(func(s *State) { v = s.GuiFont })
+	if !res.GuiFontChanged || v != "" {
+		t.Errorf("a non-string guifont: changed=%v value=%q", res.GuiFontChanged, v)
+	}
+}

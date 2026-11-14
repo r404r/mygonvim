@@ -48,6 +48,18 @@ Dropping files from Finder or Explorer on the window opens them: MyGoNVim runs `
 
 Closing the window runs `:confirm qa`: Neovim asks about unsaved changes on its own command line, and the window closes when Neovim has quit.
 
+## Fonts
+
+For the font family and for the size, separately, the first of these that has a value is used:
+
+1. Neovim's `guifont` option, set from `init.lua` (`vim.o.guifont = "JetBrainsMono Nerd Font:h14"`) or on the fly (`:set guifont=Fira_Code:h14`). An empty `guifont` is not a choice: it leaves the next source in effect. Neither is Neovim's own default: since Neovim 0.12 `guifont` starts as a font list for the platform, and MyGoNVim asks Neovim for that default at startup and treats a `guifont` equal to it as empty (until the answer arrives, `guifont` is not used), so that it does not override `-font`.
+2. The `-font` and `-font-size` flags.
+3. The default: `SF Mono, Menlo, monospace` on macOS, `Cascadia Mono, Consolas, monospace` on Windows, `monospace` elsewhere; 14 DIPs.
+
+`guifont` is read like Neovim does for other GUIs: a comma separated list of fonts (the order is the fallback order), `_` in a name stands for a space, a backslash makes the next character literal, and `:hN` gives the size (a fraction is fine). The size is taken as DIPs, which are points on macOS; how that compares with points on Windows has not been checked. Only the first `:h` counts. `:b` and `:i` are parsed but not used: bold and italic text comes from the highlight groups, and the regular font stays regular. Other options (`:w`, `:c`, `:s`, ...) and `*` are ignored. A generic `monospace` is added at the end of the list, so that a name that is not installed still gives a fixed-width font. Changing the font measures the cells again and asks Neovim for the grid that fits the window.
+
+This is tested with a real Neovim on Linux. A font such as a Nerd Font on a real Mac or Windows machine has not been tried.
+
 ## Portable mode
 
 If a `data/` folder sits next to the program, Neovim's `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_STATE_HOME` and `XDG_CACHE_HOME` point into `data/config`, `data/share`, `data/state` and `data/cache`, and the app's own user data goes to `data/mygonvim`.
@@ -73,7 +85,7 @@ MYGONVIM_SCREENSHOT=shot.png NVIM_BIN=... go test -run RealNvim ./internal/gui
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build .
 ```
 
-Layout: `internal/grid` (screen model from `redraw` events), `internal/input` (keys and IME to `nvim_input` notation), `internal/nvimproc` (find, start and talk to nvim), `internal/appmenu` (the menu bar), `internal/openfiles` (paths to the Ex command that opens them), `internal/gui` (the MyGo view that draws the grid). MyGo is pinned in `go.mod` to the release v0.9.0.
+Layout: `internal/grid` (screen model from `redraw` events), `internal/input` (keys and IME to `nvim_input` notation), `internal/nvimproc` (find, start and talk to nvim), `internal/appmenu` (the menu bar), `internal/openfiles` (paths to the Ex command that opens them), `internal/fontcfg` (which font wins; `guifont` parsing), `internal/gui` (the MyGo view that draws the grid). MyGo is pinned in `go.mod` to the release v0.9.0.
 
 ## License
 

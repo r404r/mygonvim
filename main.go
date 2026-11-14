@@ -135,6 +135,15 @@ func start(opts options) *nvimproc.Session {
 		return fail(err)
 	}
 	late.be.Store(sess)
+	// Neovim 0.12 gives 'guifont' a default font list. It is not the user's
+	// choice: the editor treats a 'guifont' equal to it as empty.
+	go func() {
+		def, err := sess.OptionDefault("guifont")
+		if err != nil {
+			log.Printf("default guifont: %v", err)
+		}
+		ed.SetDefaultGuiFont(def)
+	}()
 
 	w := mygo.NewWindow(mygo.WindowOptions{
 		Title:     appTitle,

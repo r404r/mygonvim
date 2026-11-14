@@ -239,3 +239,39 @@ func TestStartFailsClearlyForAMissingBinary(t *testing.T) {
 		t.Fatal("expected an error")
 	}
 }
+
+// OptionDefault tells the value an option has before any configuration, which
+// differs from the current value once it is set. Since Neovim 0.12 the default
+// of guifont is a font list, not "".
+func TestOptionDefaultIsNotTheCurrentValue(t *testing.T) {
+	bin := testBin(t)
+	dir := t.TempDir()
+	s, err := Start(Options{
+		Bin: bin, Args: []string{"--clean"}, Env: PortableEnv(os.Environ(), filepath.Join(dir, "data")),
+		Cols: 60, Rows: 12, Logf: t.Logf, OnRedraw: func(...[]any) {},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var initial string
+	if err := s.Nvim().Eval("&guifont", &initial); err != nil {
+		t.Fatal(err)
+	}
+	def, err := s.OptionDefault("guifont")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if def != initial {
+		t.Errorf("default %q, but an untouched guifont is %q", def, initial)
+	}
+	if err := s.Nvim().Command("set guifont=Menlo:h13"); err != nil {
+		t.Fatal(err)
+	}
+	if again, err := s.OptionDefault("guifont"); err != nil || again != def {
+		t.Errorf("after :set guifont the default is %q, %v; want it unchanged: %q", again, err, def)
+	}
+	if _, err := s.OptionDefault("no_such_option"); err == nil {
+		t.Error("an unknown option gave no error")
+	}
+}

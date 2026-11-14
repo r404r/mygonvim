@@ -161,6 +161,15 @@ func Start(o Options) (*Session, error) {
 // it from a goroutine of your own, never from the UI thread.
 func (s *Session) Nvim() *nvim.Nvim { return s.nv }
 
+// OptionDefault returns the default value of a string option, as Neovim has it
+// before any configuration (nvim_get_option_info2). It waits for the answer, so
+// call it from a goroutine of your own, never from the UI thread.
+func (s *Session) OptionDefault(name string) (string, error) {
+	var v string
+	err := s.nv.Call("luaeval", &v, "vim.api.nvim_get_option_info2(_A, {}).default", name)
+	return v, err
+}
+
 // Done is closed when nvim has exited.
 func (s *Session) Done() <-chan struct{} { return s.done }
 
