@@ -69,12 +69,20 @@ const (
 	opInput opKind = iota
 	opCommand
 	opResize
+	opMouse
 )
 
 type op struct {
 	kind       opKind
 	s          string
 	cols, rows int
+	mouse      mouseOp
+}
+
+// mouseOp is one nvim_input_mouse call (grid 0: there is no multigrid yet).
+type mouseOp struct {
+	button, action, modifier string
+	row, col                 int
 }
 
 // Start runs nvim --embed and attaches this program as its UI.
@@ -187,6 +195,15 @@ func (s *Session) Input(keys string) {
 	}
 }
 
+// Mouse queues nvim_input_mouse: button is "left", "right", "middle", "x1",
+// "x2" or "wheel"; action is "press", "drag", "release" or "move", and for the
+// wheel "up", "down", "left" or "right"; modifier is a string of S, C, A and D
+// letters; row and col are zero-based grid cells. It is sent in order with the
+// keys around it.
+func (s *Session) Mouse(button, action, modifier string, row, col int) {
+	s.push(op{kind: opMouse, mouse: mouseOp{button, action, modifier, row, col}})
+}
+
 // Command queues an Ex command (nvim_command). It is sent in order with the
 // input before it but not waited for, so a command that asks the user a
 // question does not hold up the keys that answer it.
@@ -249,6 +266,9 @@ func (s *Session) work() {
 			}(o.s)
 		case opResize:
 			err = s.nv.TryResizeUI(o.cols, o.rows)
+		case opMouse:
+			m := o.mouse
+			err = s.nv.InputMouse(m.button, m.action, m.modifier, 0, m.row, m.col)
 		}
 		if err != nil && !s.exitedSoon() {
 			s.logf("nvim call failed: %v", err)

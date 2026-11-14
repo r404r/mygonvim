@@ -21,6 +21,8 @@ type Backend interface {
 	Input(keys string)
 	Resize(cols, rows int)
 	Command(cmd string)
+	// Mouse is nvim_input_mouse: see nvimproc.Session.Mouse.
+	Mouse(button, action, modifier string, row, col int)
 }
 
 // Config is the editor's look.
@@ -58,6 +60,7 @@ type Editor struct {
 	Model *grid.Model
 	be    Backend
 	tr    *input.Translator
+	wheel *input.Wheel
 	cfg   Config
 	hooks Hooks
 
@@ -100,7 +103,7 @@ func NewEditor(be Backend, cfg Config, hooks Hooks) *Editor {
 		cfg.Cols, cfg.Rows = 80, 24
 	}
 	e := &Editor{
-		Model: grid.New(cfg.Cols, cfg.Rows), be: be, tr: input.New(), cfg: cfg, hooks: hooks,
+		Model: grid.New(cfg.Cols, cfg.Rows), be: be, tr: input.New(), wheel: input.NewWheel(), cfg: cfg, hooks: hooks,
 		reqCols: cfg.Cols, reqRows: cfg.Rows,
 		shaped: map[shapeKey][]ui.Glyph{},
 		flag:   fontcfg.Choice{Family: cfg.FontFamily, Size: max(cfg.FontSize, 0)},
@@ -157,9 +160,35 @@ func (e *Editor) View(c *ui.Context) {
 
 // handle is the box's HandleInput.
 func (e *Editor) handle(ev ui.InputEvent) bool {
+	if ev.Kind == ui.InputScroll {
+		return e.scroll(ev)
+	}
 	keys, taken := e.tr.Handle(ev)
 	if keys != "" {
 		e.be.Input(keys)
 	}
 	return taken
+}
+
+// scroll sends the wheel steps of a scroll event to the grid cell under the
+// pointer, where Neovim picks the window to scroll. While Neovim's 'mouse'
+// option is off for the mode it is in (the mouse_off event) the steps are
+// dropped, as a terminal Neovim would. It takes the event, so that
+// MyGo does not look for a scroll container around the editor; before the
+// first frame has measured a cell it takes nothing.
+func (e *Editor) scroll(ev ui.InputEvent) bool {
+	if e.cw <= 0 || e.ch <= 0 {
+		return false
+	}
+	steps := e.wheel.Steps(ev, e.cw, e.ch)
+	var off bool
+	e.Model.Read(func(s *grid.State) { off = s.MouseOff })
+	if len(steps) > 0 && !off {
+		cols, rows := e.Model.Size()
+		row, col := input.CellAt(ev.X, ev.Y, e.cw, e.ch, cols, rows)
+		for _, s := range steps {
+			e.be.Mouse("wheel", s.Action, s.Modifier, row, col)
+		}
+	}
+	return true
 }

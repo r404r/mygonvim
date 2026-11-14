@@ -14,12 +14,23 @@ type fake struct {
 	keys    []string
 	resizes [][2]int
 	cmds    []string
+	mice    []mouseCall
+}
+
+type mouseCall struct {
+	button, action, modifier string
+	row, col                 int
 }
 
 func (f *fake) Input(k string) { f.mu.Lock(); f.keys = append(f.keys, k); f.mu.Unlock() }
 func (f *fake) Resize(c, r int) {
 	f.mu.Lock()
 	f.resizes = append(f.resizes, [2]int{c, r})
+	f.mu.Unlock()
+}
+func (f *fake) Mouse(button, action, modifier string, row, col int) {
+	f.mu.Lock()
+	f.mice = append(f.mice, mouseCall{button, action, modifier, row, col})
 	f.mu.Unlock()
 }
 func (f *fake) Command(c string) { f.mu.Lock(); f.cmds = append(f.cmds, c); f.mu.Unlock() }
