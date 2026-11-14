@@ -86,6 +86,8 @@ type State struct {
 
 	Title string
 	Busy  bool
+	// GuiFont is the value of the guifont option, "" until Neovim sets it.
+	GuiFont string
 	// Flushes counts "flush" events, which end a batch of updates.
 	Flushes uint64
 }

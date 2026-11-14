@@ -6,8 +6,11 @@
 package gui
 
 import (
+	"sync"
+
 	"github.com/egoist/mygo/ui"
 
+	"github.com/r404r/mygonvim/internal/fontcfg"
 	"github.com/r404r/mygonvim/internal/grid"
 	"github.com/r404r/mygonvim/internal/input"
 )
@@ -23,9 +26,13 @@ type Backend interface {
 // Config is the editor's look.
 type Config struct {
 	// FontFamily is a family list as ui.Font takes it, e.g. "Menlo, monospace".
+	// It is what the -font flag gave, "" for none. Neovim's guifont option and
+	// the font saved from the menu come before it (see fontcfg.Resolve).
 	FontFamily string
-	// FontSize is in DIPs.
+	// FontSize is in DIPs, 0 for the default.
 	FontSize float32
+	// SavedFont is the font chosen in the menu earlier, if any.
+	SavedFont fontcfg.Choice
 	// Cols and Rows are the grid Neovim attached with, before the first frame
 	// measures the window.
 	Cols, Rows int
@@ -37,6 +44,12 @@ type Hooks struct {
 	Invalidate func()
 	// SetTitle sets the window title: Window.SetTitle.
 	SetTitle func(title string)
+	// FontChanged is called on the main thread when the editor starts to
+	// draw with another font, whoever asked for it.
+	FontChanged func(fontcfg.Choice)
+	// SaveFont stores the font chosen in the menu, to start with next time. A
+	// failure is the hook's to report.
+	SaveFont func(fontcfg.Choice)
 }
 
 // Editor is the view of one Neovim. Create it with NewEditor, give View to the
@@ -48,11 +61,24 @@ type Editor struct {
 	cfg   Config
 	hooks Hooks
 
+	// The font sources: the -font flag and the defaults never change; the
+	// 'guifont' option arrives on Neovim's goroutine, under fontMu. Neovim's
+	// own default for 'guifont' is not a choice (see SetDefaultGuiFont).
+	flag, def  fontcfg.Choice
+	fontMu     sync.Mutex
+	guiRaw     string         // 'guifont' as Neovim last said
+	guiDefault string         // 'guifont' as Neovim has it before any config
+	guiKnown   bool           // guiDefault was set: until then 'guifont' is not used
+	guiFont    fontcfg.Choice // guiRaw, parsed; zero when it is the default
+	fontDirty  bool
+
 	// Main thread only, below.
-	fonts      [4]ui.Font // by bold | italic<<1
-	metricsFor float32    // the scale cw, ch and base were measured at; 0 before the first
-	cw, ch     float32    // a cell, in DIPs, a whole number of pixels each way
-	base       float32    // the baseline's distance below a cell's top
+	saved      fontcfg.Choice // the menu's choice
+	cur        fontcfg.Choice // what fonts were built from
+	fonts      [4]ui.Font     // by bold | italic<<1
+	metricsFor float32        // the scale cw, ch and base were measured at; 0 before the first
+	cw, ch     float32        // a cell, in DIPs, a whole number of pixels each way
+	base       float32        // the baseline's distance below a cell's top
 	asc, desc  float32
 	reqCols    int // the grid last asked of Neovim
 	reqRows    int
@@ -70,12 +96,6 @@ type shapeKey struct {
 
 // NewEditor makes an editor whose model is a blank cfg.Cols x cfg.Rows grid.
 func NewEditor(be Backend, cfg Config, hooks Hooks) *Editor {
-	if cfg.FontSize <= 0 {
-		cfg.FontSize = 14
-	}
-	if cfg.FontFamily == "" {
-		cfg.FontFamily = DefaultFontFamily
-	}
 	if cfg.Cols < 1 || cfg.Rows < 1 {
 		cfg.Cols, cfg.Rows = 80, 24
 	}
@@ -83,13 +103,11 @@ func NewEditor(be Backend, cfg Config, hooks Hooks) *Editor {
 		Model: grid.New(cfg.Cols, cfg.Rows), be: be, tr: input.New(), cfg: cfg, hooks: hooks,
 		reqCols: cfg.Cols, reqRows: cfg.Rows,
 		shaped: map[shapeKey][]ui.Glyph{},
+		flag:   fontcfg.Choice{Family: cfg.FontFamily, Size: max(cfg.FontSize, 0)},
+		def:    fontcfg.Choice{Family: DefaultFontFamily, Size: 14},
+		saved:  cfg.SavedFont,
 	}
-	e.fonts = [4]ui.Font{
-		{Family: cfg.FontFamily, Size: cfg.FontSize},
-		{Family: cfg.FontFamily, Size: cfg.FontSize, Weight: 700},
-		{Family: cfg.FontFamily, Size: cfg.FontSize, Italic: true},
-		{Family: cfg.FontFamily, Size: cfg.FontSize, Weight: 700, Italic: true},
-	}
+	e.refreshFontQuietly()
 	return e
 }
 
@@ -102,7 +120,13 @@ func (e *Editor) OnRedraw(updates ...[]any) {
 		e.Model.Read(func(s *grid.State) { t = s.Title })
 		e.hooks.SetTitle(t)
 	}
-	if res.Flushed && e.hooks.Invalidate != nil {
+	if res.GuiFontChanged {
+		// The font changes on the main thread, at the start of a frame.
+		var v string
+		e.Model.Read(func(s *grid.State) { v = s.GuiFont })
+		e.setGuiFont(v)
+	}
+	if (res.Flushed || res.GuiFontChanged) && e.hooks.Invalidate != nil {
 		e.hooks.Invalidate()
 	}
 }
@@ -119,7 +143,7 @@ func (e *Editor) View(c *ui.Context) {
 	// The composition shows at the cursor, past the preedit's caret.
 	cw, ch := e.cw, e.ch
 	if cw == 0 {
-		cw, ch = e.cfg.FontSize*0.6, e.cfg.FontSize*1.3
+		cw, ch = e.cur.Size*0.6, e.cur.Size*1.3
 	}
 	x := float32(curCol) * cw
 	if e.tr.Preedit != "" {

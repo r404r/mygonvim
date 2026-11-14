@@ -39,7 +39,7 @@ jobs:
           go-version-file: go.mod
       # The pure logic: grid model, key translation, nvim lookup and portable
       # environment. The window tests need fonts and nvim and run on Linux.
-      - run: go test -count=1 . ./internal/grid ./internal/input ./internal/nvimproc ./internal/appmenu ./internal/openfiles
+      - run: go test -count=1 . ./internal/grid ./internal/input ./internal/nvimproc ./internal/appmenu ./internal/fontcfg ./internal/openfiles
 
   cross-build:
     name: build ${{ matrix.goos }}/${{ matrix.goarch }} (no cgo)

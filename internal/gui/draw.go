@@ -57,6 +57,7 @@ func (e *Editor) glyphsOf(text string, style uint8) []ui.Glyph {
 // draw paints the whole grid into r. MyGo may call it more than once a frame,
 // so the only effect besides painting is the idempotent resize request.
 func (e *Editor) draw(p *ui.Painter, r ui.Rect) {
+	e.applyPendingFont()
 	e.measure(p.Scale())
 	cols, rows := max(1, int(r.W/e.cw)), max(1, int(r.H/e.ch))
 	if cols != e.reqCols || rows != e.reqRows {
