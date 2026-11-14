@@ -1,4 +1,25 @@
-# MyGoNVim
+<p align="center">
+  <img src="resources/icon.png" alt="MyGoNVim icon" width="128" height="128">
+</p>
+
+<h1 align="center">MyGoNVim</h1>
+
+<p align="center">
+  A Neovim GUI for macOS and Windows, built with MyGo's native UI.
+</p>
+
+<p align="center">
+  <a href="https://github.com/r404r/mygonvim/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/r404r/mygonvim/actions/workflows/ci.yml/badge.svg"></a>
+</p>
+
+<p align="center">
+  <a href="#prebuilt-builds">Prebuilt builds</a> &middot;
+  <a href="#run">Run</a> &middot;
+  <a href="#mouse-wheel-and-touchpad">Mouse</a> &middot;
+  <a href="#fonts">Fonts</a> &middot;
+  <a href="#portable-mode">Portable mode</a> &middot;
+  <a href="#develop">Develop</a>
+</p>
 
 A [Neovim](https://neovim.io) GUI drawn with [MyGo](https://github.com/egoist/mygo)'s native UI: Go only, no cgo, no web view. Windows and macOS are the targets; Linux works for development.
 
