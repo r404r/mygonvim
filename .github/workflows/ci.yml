@@ -1,0 +1,65 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: vet + test (Linux, real Neovim)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install Neovim (stable release)
+        run: |
+          curl -fsSL https://github.com/neovim/neovim/releases/download/stable/nvim-linux-x86_64.tar.gz | tar xz -C "$HOME"
+          echo "$HOME/nvim-linux-x86_64/bin" >> "$GITHUB_PATH"
+      - run: nvim --version | head -3
+      - run: go vet ./...
+      - run: go test -count=1 -race ./...
+
+  unit:
+    name: unit tests (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # The pure logic: grid model, key translation, nvim lookup and portable
+      # environment. The window tests need fonts and nvim and run on Linux.
+      - run: go test -count=1 . ./internal/grid ./internal/input ./internal/nvimproc
+
+  cross-build:
+    name: build ${{ matrix.goos }}/${{ matrix.goarch }} (no cgo)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {goos: linux, goarch: amd64}
+          - {goos: darwin, goarch: arm64}
+          - {goos: darwin, goarch: amd64}
+          - {goos: windows, goarch: amd64}
+    env:
+      CGO_ENABLED: "0"
+      GOOS: ${{ matrix.goos }}
+      GOARCH: ${{ matrix.goarch }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - run: go vet ./...
+      - run: go build -o /dev/null .

@@ -1,0 +1,14 @@
+# build output of `mygo build` / `mygo dev`
+/build/
+/.mygo/
+mygo_windows_*.syso
+/mygonvim
+/mygonvim.exe
+
+# Neovim and portable data are put next to the app by hand, never committed
+/resources/*/nvim/
+/data/
+
+# local
+.DS_Store
+*.png.tmp
