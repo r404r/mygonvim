@@ -1,0 +1,141 @@
+# Build macOS and Windows assets when a v* tag is pushed, and attach them
+# to a draft GitHub Release.
+#
+# The tag must match mygo.json: tag v0.1.0 only when "version" is "0.1.0".
+# `go tool mygo build` links that version into the app; MYGO_LDFLAGS also
+# sets main.version so `mygonvim -version` matches the tag.
+#
+# Commands follow the README and MyGo v0.9.0:
+#   go tool mygo build -platform darwin/arm64,darwin/amd64
+#   go tool mygo build -platform windows/amd64 -skip-installer
+# Signing, notarization, auto-updates, and a bundled Neovim are not
+# configured here, so this workflow skips them.
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    name: vet + test (Linux, real Neovim)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Install Neovim (stable release)
+        run: |
+          curl -fsSL https://github.com/neovim/neovim/releases/download/stable/nvim-linux-x86_64.tar.gz | tar xz -C "$HOME"
+          echo "$HOME/nvim-linux-x86_64/bin" >> "$GITHUB_PATH"
+      - run: nvim --version | head -3
+      - run: go vet ./...
+      - run: go test -count=1 -race ./...
+
+  draft-release:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check that the tag matches mygo.json
+        run: test "$GITHUB_REF_NAME" = "v$(jq -r .version mygo.json)"
+      - name: Create the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if ! gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --draft --verify-tag --title "$GITHUB_REF_NAME" --generate-notes
+          fi
+
+  macos:
+    needs: draft-release
+    name: macOS (arm64, amd64)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: |
+          set -euo pipefail
+          VER="${GITHUB_REF_NAME#v}"
+          export CGO_ENABLED=0
+          export MYGO_LDFLAGS="-X main.version=${VER}"
+          # -skip-notarize: mygo.json has no notarize config, and this
+          # repository has no signing secrets. The apps are ad hoc signed.
+          go tool mygo build -platform darwin/arm64,darwin/amd64 -skip-notarize
+      - name: Upload to the draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VER="${GITHUB_REF_NAME#v}"
+          assets=()
+          for arch in arm64 amd64; do
+            dir="build/darwin-${arch}"
+            if [ -d "$dir/MyGoNVim.app" ]; then
+              zip="MyGoNVim-${VER}-darwin-${arch}.zip"
+              ditto -c -k --keepParent "$dir/MyGoNVim.app" "$zip"
+              assets+=("$zip")
+            fi
+            # Disk image names follow MyGo's pattern; upload by glob so
+            # this workflow does not hard-code an unverified filename.
+            shopt -s nullglob
+            for dmg in "$dir"/*.dmg; do
+              assets+=("$dmg")
+            done
+            shopt -u nullglob
+          done
+          if [ "${#assets[@]}" -eq 0 ]; then
+            echo "no macOS artifacts under build/darwin-*" >&2
+            ls -laR build || true
+            exit 1
+          fi
+          gh release upload "$GITHUB_REF_NAME" "${assets[@]}" \
+            --repo "$GITHUB_REPOSITORY" --clobber
+
+  windows:
+    needs: draft-release
+    name: Windows amd64 portable zip
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Build
+        run: |
+          set -euo pipefail
+          VER="${GITHUB_REF_NAME#v}"
+          export CGO_ENABLED=0
+          export MYGO_LDFLAGS="-X main.version=${VER}"
+          # -skip-installer: the portable layout is a folder, not the NSIS
+          # installer. Same flag as in the project README.
+          go tool mygo build -platform windows/amd64 -skip-installer
+      - name: Pack the portable zip and upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VER="${GITHUB_REF_NAME#v}"
+          dir="build/windows-amd64"
+          if [ ! -f "$dir/MyGoNVim.exe" ]; then
+            echo "MyGoNVim.exe not found under $dir" >&2
+            ls -laR build || true
+            exit 1
+          fi
+          # An empty data/ next to the program enables portable mode
+          # (XDG_* under data/, app logs under data/mygonvim/logs).
+          # Neovim itself is not bundled.
+          mkdir -p "$dir/data"
+          asset="MyGoNVim-${VER}-windows-amd64-portable.zip"
+          root="$PWD"
+          (cd "$dir" && zip -r "$root/$asset" . -x ".mygo-files")
+          gh release upload "$GITHUB_REF_NAME" "$asset" \
+            --repo "$GITHUB_REPOSITORY" --clobber

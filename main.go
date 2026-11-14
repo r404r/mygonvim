@@ -34,6 +34,11 @@ func main() {
 		fmt.Fprintln(os.Stderr, "mygonvim:", err)
 		os.Exit(2)
 	}
+	if opts.printVersion {
+		writeVersion(os.Stdout)
+		return
+	}
+	mygo.App.SetVersion(displayedVersion())
 	var sess *nvimproc.Session
 	mygo.App.WhenReady(func() { sess = start(opts) })
 	if err := mygo.App.Run(); err != nil {
