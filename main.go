@@ -151,6 +151,8 @@ func start(opts options) *nvimproc.Session {
 		e.PreventDefault()
 		sess.Command("confirm qa")
 	})
+	// Files dropped from Finder or Explorer open in Neovim.
+	w.OnFileDrop(func(e *mygo.FileDropEvent) { ed.OpenFiles(e.Paths) })
 	win.Store(w)
 	var title string
 	ed.Model.Read(func(s *grid.State) { title = s.Title })
