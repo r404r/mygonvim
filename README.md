@@ -23,7 +23,10 @@ usage: mygonvim [flags] [file ...]
   -font string        font family list, e.g. "JetBrains Mono, monospace"
   -font-size float    font size in DIPs (default 14)
   -width, -height     window size in DIPs (default 1000x650)
+  -version            print the version and exit
 ```
+
+`mygonvim -version` prints `MyGoNVim <version>`. `go run` and tests use `dev`. A release build sets the version from `mygo.json` (`go tool mygo build` links it into the app) and with `-ldflags="-X main.version=…"` or the `MYGO_LDFLAGS` environment variable (which `go tool mygo build` appends). The two should be the same string, without a leading `v`.
 
 Where nvim is looked for: `-nvim`, `$MYGONVIM_NVIM`, `nvim/bin/nvim[.exe]` or `nvim/nvim[.exe]` next to the program (and in the app's resources folder), `PATH`, then `/opt/homebrew/bin` and `/usr/local/bin` on macOS.
 

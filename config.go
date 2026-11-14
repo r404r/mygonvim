@@ -8,12 +8,13 @@ import (
 
 // options are the command line's.
 type options struct {
-	nvim     string  // -nvim: the nvim executable
-	font     string  // -font: a font family list
-	fontSize float64 // -font-size, in DIPs
-	width    int     // -width and -height: the window's size in DIPs
-	height   int
-	files    []string // what is left: files for nvim to open; put "--" before names that start with "-"
+	nvim         string  // -nvim: the nvim executable
+	font         string  // -font: a font family list
+	fontSize     float64 // -font-size, in DIPs
+	width        int     // -width and -height: the window's size in DIPs
+	height       int
+	printVersion bool     // -version: print the version and exit
+	files        []string // what is left: files for nvim to open; put "--" before names that start with "-"
 }
 
 func parseOptions(args []string, out io.Writer) (options, error) {
@@ -25,6 +26,7 @@ func parseOptions(args []string, out io.Writer) (options, error) {
 	fs.Float64Var(&o.fontSize, "font-size", 14, "font size in DIPs")
 	fs.IntVar(&o.width, "width", 1000, "window width in DIPs")
 	fs.IntVar(&o.height, "height", 650, "window height in DIPs")
+	fs.BoolVar(&o.printVersion, "version", false, "print the version and exit")
 	fs.Usage = func() {
 		fmt.Fprintf(out, "usage: mygonvim [flags] [file ...]\n\nA Neovim GUI drawn with MyGo's native UI. Tested with Neovim 0.12.\n\nflags:\n")
 		fs.PrintDefaults()
