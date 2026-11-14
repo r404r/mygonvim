@@ -50,7 +50,7 @@ MYGONVIM_SCREENSHOT=shot.png NVIM_BIN=... go test -run RealNvim ./internal/gui
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build .
 ```
 
-Layout: `internal/grid` (screen model from `redraw` events), `internal/input` (keys and IME to `nvim_input` notation), `internal/nvimproc` (find, start and talk to nvim), `internal/gui` (the MyGo view that draws the grid). MyGo is pinned in `go.mod` to a commit of its `main` branch.
+Layout: `internal/grid` (screen model from `redraw` events), `internal/input` (keys and IME to `nvim_input` notation), `internal/nvimproc` (find, start and talk to nvim), `internal/gui` (the MyGo view that draws the grid). MyGo is pinned in `go.mod` to the release v0.9.0.
 
 ## License
 
