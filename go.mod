@@ -1,4 +1,4 @@
-module github.com/r404r/MyGoNVim
+module github.com/r404r/mygonvim
 
 go 1.27.3
 

@@ -18,9 +18,9 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
-	"github.com/r404r/MyGoNVim/internal/grid"
-	"github.com/r404r/MyGoNVim/internal/gui"
-	"github.com/r404r/MyGoNVim/internal/nvimproc"
+	"github.com/r404r/mygonvim/internal/grid"
+	"github.com/r404r/mygonvim/internal/gui"
+	"github.com/r404r/mygonvim/internal/nvimproc"
 )
 
 const appTitle = "MyGoNVim"

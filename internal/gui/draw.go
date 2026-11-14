@@ -7,7 +7,7 @@ import (
 	"github.com/egoist/mygo/ui"
 	xwidth "golang.org/x/text/width"
 
-	"github.com/r404r/MyGoNVim/internal/grid"
+	"github.com/r404r/mygonvim/internal/grid"
 )
 
 func rgb(n int) ui.Color {

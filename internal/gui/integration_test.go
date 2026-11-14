@@ -11,8 +11,8 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
-	"github.com/r404r/MyGoNVim/internal/grid"
-	"github.com/r404r/MyGoNVim/internal/nvimproc"
+	"github.com/r404r/mygonvim/internal/grid"
+	"github.com/r404r/mygonvim/internal/nvimproc"
 )
 
 // The whole path against a real nvim --embed, with a headless MyGo window (the

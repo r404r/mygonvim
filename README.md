@@ -13,7 +13,7 @@ Needs Go 1.27.3 or later (what MyGo requires) and Neovim on `PATH` (or pass `-nv
 ```sh
 # macOS
 brew install neovim go
-git clone https://github.com/r404r/MyGoNVim && cd MyGoNVim
+git clone https://github.com/r404r/mygonvim && cd mygonvim
 go run . path/to/file.txt          # or: go tool mygo dev
 ```
 

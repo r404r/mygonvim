@@ -8,8 +8,8 @@ package gui
 import (
 	"github.com/egoist/mygo/ui"
 
-	"github.com/r404r/MyGoNVim/internal/grid"
-	"github.com/r404r/MyGoNVim/internal/input"
+	"github.com/r404r/mygonvim/internal/grid"
+	"github.com/r404r/mygonvim/internal/input"
 )
 
 // Backend is what the editor needs of Neovim. Its methods must not block: the
