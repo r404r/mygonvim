@@ -12,6 +12,12 @@ It runs `nvim --embed`, keeps Neovim's cell grid in memory, and draws it cell by
 
 Those builds are unsigned. The macOS apps are ad hoc signed and not notarized; Gatekeeper will likely block them on other Macs. The builds declare macOS 13.0 as the minimum (`macos.minimumSystemVersion` in `mygo.json`).
 
+If Gatekeeper blocks the app, first Control-click (right-click) it in Finder and choose Open. If that still fails, copy the app to Applications when it came from a `.dmg`, then run:
+
+    xattr -dr com.apple.quarantine /path/to/MyGoNVim.app
+
+This method has not been verified on a real Mac.
+
 ## Run
 
 Needs Go 1.27.3 or later (what MyGo requires) and Neovim on `PATH` (or pass `-nvim`). Developed and tested with Neovim 0.12 (v0.12.6 in our tests); older versions are untested.
