@@ -330,3 +330,23 @@ func TestMalformedOptionSetIsIgnored(t *testing.T) {
 		t.Errorf("a non-string guifont: changed=%v value=%q", res.GuiFontChanged, v)
 	}
 }
+
+func TestMouseOnAndOffEvents(t *testing.T) {
+	m := New(10, 3)
+	read := func() (off bool) { m.Read(func(s *State) { off = s.MouseOff }); return }
+	if read() {
+		t.Fatal("a new model has the mouse off")
+	}
+	m.Apply([]any{"mouse_off"})
+	if !read() {
+		t.Error("mouse_off did not turn the mouse off")
+	}
+	m.Apply([]any{"mouse_on", []any{}})
+	if read() {
+		t.Error("mouse_on did not turn the mouse on")
+	}
+	m.Apply([]any{"mouse_off", []any{}})
+	if !read() {
+		t.Error("mouse_off with an empty argument list did not turn the mouse off")
+	}
+}

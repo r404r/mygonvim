@@ -115,6 +115,10 @@ func (s *State) event(name string, args []any, res *Result) {
 				res.GuiFontChanged = true
 			}
 		}
+	case "mouse_on":
+		s.MouseOff = false
+	case "mouse_off":
+		s.MouseOff = true
 	case "busy_start":
 		s.Busy = true
 	case "busy_stop":

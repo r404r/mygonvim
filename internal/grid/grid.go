@@ -86,6 +86,9 @@ type State struct {
 
 	Title string
 	Busy  bool
+	// MouseOff is true while Neovim says its 'mouse' option is off for the
+	// current mode (mouse_off); mouse_on ends it. A new model has the mouse on.
+	MouseOff bool
 	// GuiFont is the value of the guifont option, "" until Neovim sets it.
 	GuiFont string
 	// Flushes counts "flush" events, which end a batch of updates.

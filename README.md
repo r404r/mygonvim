@@ -4,7 +4,7 @@ A [Neovim](https://neovim.io) GUI drawn with [MyGo](https://github.com/egoist/my
 
 It runs `nvim --embed`, keeps Neovim's cell grid in memory, and draws it cell by cell with MyGo's `ui.Shape` and `Painter.Glyphs`.
 
-**Status: MVP step 1 (partial), version 0.0.2.** Linux has been verified (unit and integration tests, a real window, and CI): it opens files, edits and saves; syntax colors, CJK and emoji, cursor shapes per mode, window title, window resize, Ctrl/Alt/special keys. Input-method composition is drawn at the cursor in headless tests; real IME on macOS and Windows is untested. macOS and Windows compile, pass CI unit tests, and have unsigned preview builds, but have not been run on a real machine, so MVP 1 is not done. Not yet: mouse, clipboard shortcuts, high-DPI polish, command-line/popup-menu/tab-line/multigrid UI, a bundled Neovim, or signed/notarized packages. Design notes are maintained separately.
+**Status: MVP step 1 (partial), version 0.0.2.** Linux has been verified (unit and integration tests, a real window, and CI): it opens files, edits and saves; syntax colors, CJK and emoji, cursor shapes per mode, window title, window resize, Ctrl/Alt/special keys. Input-method composition is drawn at the cursor in headless tests; real IME on macOS and Windows is untested. macOS and Windows compile, pass CI unit tests, and have unsigned preview builds, but have not been run on a real machine, so MVP 1 is not done. The mouse wheel and touchpad scroll the window under the pointer (tested against a real Neovim in a headless window, not yet on a real Mac or Windows machine). Not yet: mouse clicks and dragging, clipboard shortcuts, high-DPI polish, command-line/popup-menu/tab-line/multigrid UI, a bundled Neovim, or signed/notarized packages. Design notes are maintained separately.
 
 ## Prebuilt builds
 
@@ -48,6 +48,17 @@ Dropping files from Finder or Explorer on the window opens them: MyGoNVim runs `
 
 Closing the window runs `:confirm qa`: Neovim asks about unsaved changes on its own command line, and the window closes when Neovim has quit.
 
+## Mouse wheel and touchpad
+
+Scroll events go to Neovim as `nvim_input_mouse` wheel steps at the cell under the pointer, so with split windows the one under the pointer scrolls. Each step moves what Neovim's `mousescroll` option defaults to: three lines up or down, six columns sideways. The editor assumes that default; a changed `mousescroll` is not read.
+
+- **Mouse wheel**: one step per notch; a fast turn that the system accelerates gives several steps.
+- **Touchpad**: the pixels of the gesture add up and one step goes out each time they reach three lines (six columns sideways), so a small movement does nothing until it adds up, and a pause of 0.3 seconds or a change of direction starts the count again. The momentum after the fingers leave arrives as more scrolling and goes the same way. The direction is the one the system reports, so macOS's "natural scrolling" setting applies as it does elsewhere.
+- Shift, Ctrl, Alt and Command (Super) are passed on, so Neovim sees `<S-ScrollWheelDown>` and so on, and its mappings and defaults for them apply (by default Shift+wheel scrolls a page).
+- While Neovim says its `mouse` option is off for the current mode (`mouse_off`), as with `set mouse=` or on the command line with the default `mouse=nvi`, scrolling is ignored.
+
+The steps, the cell mapping and the Neovim side are tested, including a real Neovim scrolling a long buffer; how a real trackpad feels (speed, momentum) has not been tried. Mouse clicks and dragging are not forwarded yet.
+
 ## Fonts
 
 For the font family and for the size, separately, the first of these that has a value is used:
@@ -88,7 +99,7 @@ MYGONVIM_SCREENSHOT=shot.png NVIM_BIN=... go test -run RealNvim ./internal/gui
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build .
 ```
 
-Layout: `internal/grid` (screen model from `redraw` events), `internal/input` (keys and IME to `nvim_input` notation), `internal/nvimproc` (find, start and talk to nvim), `internal/appmenu` (the menu bar), `internal/openfiles` (paths to the Ex command that opens them), `internal/fontcfg` (which font wins; `guifont` parsing), `internal/gui` (the MyGo view that draws the grid). MyGo is pinned in `go.mod` to the release v0.9.0.
+Layout: `internal/grid` (screen model from `redraw` events), `internal/input` (keys and IME to `nvim_input` notation; scroll events to wheel steps), `internal/nvimproc` (find, start and talk to nvim), `internal/appmenu` (the menu bar), `internal/openfiles` (paths to the Ex command that opens them), `internal/fontcfg` (which font wins; `guifont` parsing), `internal/gui` (the MyGo view that draws the grid). MyGo is pinned in `go.mod` to the release v0.9.0.
 
 ## License
 

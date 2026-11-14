@@ -68,6 +68,11 @@ func (l *lateBackend) Resize(c, r int) {
 		s.Resize(c, r)
 	}
 }
+func (l *lateBackend) Mouse(button, action, modifier string, row, col int) {
+	if s := l.be.Load(); s != nil {
+		s.Mouse(button, action, modifier, row, col)
+	}
+}
 func (l *lateBackend) Command(c string) {
 	if s := l.be.Load(); s != nil {
 		s.Command(c)
