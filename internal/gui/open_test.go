@@ -3,10 +3,12 @@ package gui
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/r404r/mygonvim/internal/appmenu"
 	"github.com/r404r/mygonvim/internal/grid"
 	"github.com/r404r/mygonvim/internal/nvimproc"
 )
@@ -90,4 +92,18 @@ func TestRealNvimOpensDroppedFiles(t *testing.T) {
 
 	ed.OpenFiles([]string{second})
 	wait("the second file", "content of the second file")
+}
+
+// The File > Open... path end to end, with the dialog stubbed: chosen files
+// reach the backend as one command, and a canceled dialog sends nothing.
+func TestOpenDialogFeedsOpenFiles(t *testing.T) {
+	e := newEnv(t, 400, 200)
+	appmenu.ChooseAndOpen(func() ([]string, error) { return nil, nil }, e.ed.OpenFiles, nil)
+	if len(e.be.cmds) != 0 {
+		t.Fatalf("a canceled dialog sent %q, want nothing", e.be.cmds)
+	}
+	appmenu.ChooseAndOpen(func() ([]string, error) { return []string{"/tmp/x y.txt"}, nil }, e.ed.OpenFiles, nil)
+	if want := []string{`confirm drop /tmp/x\ y.txt`}; !reflect.DeepEqual(e.be.cmds, want) {
+		t.Errorf("commands = %q, want %q", e.be.cmds, want)
+	}
 }

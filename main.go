@@ -13,11 +13,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync/atomic"
 
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
+	"github.com/r404r/mygonvim/internal/appmenu"
 	"github.com/r404r/mygonvim/internal/grid"
 	"github.com/r404r/mygonvim/internal/gui"
 	"github.com/r404r/mygonvim/internal/nvimproc"
@@ -151,6 +153,16 @@ func start(opts options) *nvimproc.Session {
 		e.PreventDefault()
 		sess.Command("confirm qa")
 	})
+	mygo.App.SetMenu(mygo.NewMenu(appmenu.Template(runtime.GOOS, appmenu.Actions{
+		// The dialog blocks until it is dismissed, and menu items run on the
+		// main thread: wait for it on a goroutine of its own.
+		Open: func() {
+			go appmenu.ChooseAndOpen(func() ([]string, error) {
+				return mygo.Dialog.Open(mygo.OpenDialogOptions{Parent: w, Title: "Open", Multiple: true})
+			}, ed.OpenFiles, log.Printf)
+		},
+		Quit: mygo.App.Quit,
+	})))
 	// Files dropped from Finder or Explorer open in Neovim.
 	w.OnFileDrop(func(e *mygo.FileDropEvent) { ed.OpenFiles(e.Paths) })
 	win.Store(w)
