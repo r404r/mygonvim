@@ -8,7 +8,7 @@ It runs `nvim --embed`, keeps Neovim's cell grid in memory, and draws it cell by
 
 ## Run
 
-Needs Go 1.27.3 or later (what MyGo requires) and Neovim 0.10 or later on `PATH` (or pass `-nvim`).
+Needs Go 1.27.3 or later (what MyGo requires) and Neovim on `PATH` (or pass `-nvim`). Developed and tested with Neovim 0.12; older versions are untested.
 
 ```sh
 # macOS

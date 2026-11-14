@@ -26,7 +26,7 @@ func parseOptions(args []string, out io.Writer) (options, error) {
 	fs.IntVar(&o.width, "width", 1000, "window width in DIPs")
 	fs.IntVar(&o.height, "height", 650, "window height in DIPs")
 	fs.Usage = func() {
-		fmt.Fprintf(out, "usage: mygonvim [flags] [file ...]\n\nA Neovim GUI drawn with MyGo's native UI. Needs Neovim 0.10 or later.\n\nflags:\n")
+		fmt.Fprintf(out, "usage: mygonvim [flags] [file ...]\n\nA Neovim GUI drawn with MyGo's native UI. Tested with Neovim 0.12.\n\nflags:\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {
