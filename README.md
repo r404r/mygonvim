@@ -15,7 +15,7 @@
 <p align="center">
   <a href="#prebuilt-builds">Prebuilt builds</a> &middot;
   <a href="#run">Run</a> &middot;
-  <a href="#mouse-wheel-and-touchpad">Mouse</a> &middot;
+  <a href="#mouse">Mouse</a> &middot;
   <a href="#fonts">Fonts</a> &middot;
   <a href="#portable-mode">Portable mode</a> &middot;
   <a href="#develop">Develop</a>
@@ -75,11 +75,11 @@ File > Exit and the application Quit action use the same confirmation path. Duri
 
 RPC request failures and `nvim_error_event` notifications are written to `mygonvim.log` in MyGo's application log directory (`PathLogs`). In portable mode this is `data/mygonvim/logs/mygonvim.log`. The log also goes to stderr when one is available. It starts over when the next write would exceed 1 MiB; an oversized existing log is cleared on startup. If the log file cannot be opened, logging continues on stderr. Error events include their type and message; a recent call name is only a hint and does not identify the failing request.
 
-## Mouse wheel and touchpad
+## Mouse
 
 Left, right and middle button presses, drags and releases go to Neovim as `nvim_input_mouse`, with Shift, Ctrl, Alt and Command (Super). Neovim decides what each button and double/triple click do: left clicks place the cursor or switch splits, dragging selects text, double clicks select words and triple clicks select lines. The default right click opens Neovim's popup; the middle button puts register text. This does not add a separate GUI context menu.
 
-Coordinates share the wheel's cell mapping and clamp to the grid edges. Drag events are sent only when the cell changes. Once a press is accepted, its release is sent even outside the window or when focus is lost. A gesture started while Neovim reports `mouse_off` is ignored until release; an already forwarded press still gets a release after `mouse_off`. Hover and side buttons are not forwarded.
+Coordinates share the wheel's cell mapping and clamp to the grid edges. Drag events are sent only when the cell changes. Only one button gesture is active at a time, matching MyGo's capture model. A new press first releases the previous gesture at the current clamped cell, even for the same button; this prevents overlapping buttons from leaving a stuck drag. An active press is also released outside the window or when focus is lost. A gesture started while Neovim reports `mouse_off` is ignored until release; an already forwarded press still gets a release after `mouse_off`. Hover and side buttons are not forwarded.
 
 Scroll events go to Neovim as `nvim_input_mouse` wheel steps at the cell under the pointer, so with split windows the one under the pointer scrolls. Each step moves what Neovim's `mousescroll` option defaults to: three lines up or down, six columns sideways. The editor assumes that default; a changed `mousescroll` is not read.
 

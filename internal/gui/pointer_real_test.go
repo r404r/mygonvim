@@ -58,6 +58,33 @@ func TestRealNvimPointerClickMovesCursor(t *testing.T) {
 	}
 }
 
+func TestRealNvimPointerClickAfterOverlappingButtons(t *testing.T) {
+	for _, cancel := range []bool{false, true} {
+		t.Run(fmt.Sprintf("focusLoss=%v", cancel), func(t *testing.T) {
+			r := startRealPointer(t, "--cmd", "set mousemodel=extend")
+			r.tt.SetFocused(true)
+			x, y := r.at(2, 0)
+			r.tt.Press(x, y)
+			pointerSync(r)
+			r.tt.PressButton(1, x, y)
+			pointerSync(r)
+			if cancel {
+				r.tt.SetFocused(false)
+			}
+			r.tt.ReleaseButton(1, x, y)
+			r.tt.Release(x, y)
+			if cancel {
+				r.tt.SetFocused(true)
+			}
+			pointerSync(r)
+			pointerClick(r, 0, 7, 2)
+			if line, col := r.eval("line('.')"), r.eval("col('.')"); line != 3 || col != 8 {
+				t.Fatalf("next click: cursor=(%d,%d), want (3,8)", line, col)
+			}
+		})
+	}
+}
+
 func TestRealNvimPointerDragSelectsText(t *testing.T) {
 	r := startRealPointer(t)
 	x, y := r.at(6, 0)

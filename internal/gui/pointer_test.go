@@ -79,3 +79,62 @@ func TestPointerBeforeFirstFrameIsLeftAlone(t *testing.T) {
 		t.Fatal("pointer taken before cell metrics are known")
 	}
 }
+
+func TestPointerOverlappingButtonsReleaseNewestFirst(t *testing.T) {
+	for button, name := range []string{"left", "right", "middle"} {
+		if button == 0 {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t, 640, 400)
+			x, y := cellCenter(e, 2, 3)
+			e.tt.Press(float32(x), float32(y))
+			e.tt.PressButton(button, float32(x), float32(y))
+			e.tt.ReleaseButton(button, float32(x), float32(y))
+			e.tt.Release(float32(x), float32(y))
+			e.tt.Move(float32(x+20), float32(y+20))
+			x, y = cellCenter(e, 6, 4)
+			e.tt.ClickAt(float32(x), float32(y))
+			want := []mouseCall{
+				{"left", "press", "", 3, 2}, {"left", "release", "", 3, 2},
+				{name, "press", "", 3, 2}, {name, "release", "", 3, 2},
+				{"left", "press", "", 4, 6}, {"left", "release", "", 4, 6},
+			}
+			if got := e.mouse(); !reflect.DeepEqual(got, want) {
+				t.Fatalf("overlapping buttons: got %v; want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestPointerOverlappingButtonsLoseFocus(t *testing.T) {
+	for button, name := range []string{"left", "right", "middle"} {
+		if button == 0 {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			e := newEnv(t, 640, 400)
+			e.tt.SetFocused(true)
+			x, y := cellCenter(e, 2, 3)
+			e.tt.Press(float32(x), float32(y))
+			e.tt.PressButton(button, float32(x), float32(y))
+			e.ed.OnRedraw(ev("mouse_off"))
+			e.tt.SetFocused(false)
+			e.tt.ReleaseButton(button, float32(x), float32(y))
+			e.tt.Release(float32(x), float32(y))
+			e.tt.SetFocused(true)
+			e.ed.OnRedraw(ev("mouse_on"))
+			e.tt.Move(float32(x+20), float32(y+20))
+			x, y = cellCenter(e, 6, 4)
+			e.tt.ClickAt(float32(x), float32(y))
+			want := []mouseCall{
+				{"left", "press", "", 3, 2}, {"left", "release", "", 3, 2},
+				{name, "press", "", 3, 2}, {name, "release", "", 3, 2},
+				{"left", "press", "", 4, 6}, {"left", "release", "", 4, 6},
+			}
+			if got := e.mouse(); !reflect.DeepEqual(got, want) {
+				t.Fatalf("focus loss: got %v; want %v", got, want)
+			}
+		})
+	}
+}

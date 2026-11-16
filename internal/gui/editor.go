@@ -174,6 +174,10 @@ func (e *Editor) handle(ev ui.InputEvent) bool {
 	return taken
 }
 
+// point shares the wheel's clamped cell mapping and mouse_off state. Pointer
+// follows MyGo's single captured press, releasing it before a new Down. Calls
+// stay ordered in the backend queue; before cell metrics are known it takes
+// nothing, as scroll does.
 func (e *Editor) point(ev ui.InputEvent) bool {
 	if e.cw <= 0 || e.ch <= 0 {
 		return false
@@ -182,8 +186,8 @@ func (e *Editor) point(ev ui.InputEvent) bool {
 	row, col := input.CellAt(ev.X, ev.Y, e.cw, e.ch, cols, rows)
 	var off bool
 	e.Model.Read(func(s *grid.State) { off = s.MouseOff })
-	m, taken := e.pointer.Handle(ev, row, col, !off)
-	if m.Button != "" {
+	events, taken := e.pointer.Handle(ev, row, col, !off)
+	for _, m := range events {
 		e.be.Mouse(m.Button, m.Action, m.Modifier, m.Row, m.Col)
 	}
 	return taken
