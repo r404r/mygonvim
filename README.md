@@ -15,7 +15,7 @@
 <p align="center">
   <a href="#prebuilt-builds">Prebuilt builds</a> &middot;
   <a href="#run">Run</a> &middot;
-  <a href="#mouse-wheel-and-touchpad">Mouse</a> &middot;
+  <a href="#mouse">Mouse</a> &middot;
   <a href="#fonts">Fonts</a> &middot;
   <a href="#portable-mode">Portable mode</a> &middot;
   <a href="#develop">Develop</a>
@@ -25,7 +25,7 @@ A [Neovim](https://neovim.io) GUI drawn with [MyGo](https://github.com/egoist/my
 
 It runs `nvim --embed`, keeps Neovim's cell grid in memory, and draws it cell by cell with MyGo's `ui.Shape` and `Painter.Glyphs`.
 
-**Status: MVP step 1 (partial), version 0.0.3.** Linux has been verified (unit and integration tests, a real window, and CI): it opens files, edits and saves; syntax colors, CJK and emoji, cursor shapes per mode, window title, window resize, Ctrl/Alt/special keys. Input-method composition is drawn at the cursor in headless tests; real IME on macOS and Windows is untested. macOS and Windows compile, pass CI unit tests, and have unsigned preview builds, but have not been run on a real machine, so MVP 1 is not done. The mouse wheel and touchpad scroll the window under the pointer (tested against a real Neovim in a headless window, not yet on a real Mac or Windows machine). Not yet: mouse clicks and dragging, clipboard shortcuts, high-DPI polish, command-line/popup-menu/tab-line/multigrid UI, a bundled Neovim, or signed/notarized packages. Design notes are maintained separately.
+**Status: MVP step 1 (partial), version 0.0.3.** Linux has been verified (unit and integration tests, a real window, and CI): it opens files, edits and saves; syntax colors, CJK and emoji, cursor shapes per mode, window title, window resize, Ctrl/Alt/special keys. Input-method composition is drawn at the cursor in headless tests; real IME on macOS and Windows is untested. macOS and Windows compile, pass CI unit tests, and have unsigned preview builds, but have not been run on a real machine, so MVP 1 is not done. The mouse wheel and touchpad scroll the window under the pointer (tested against a real Neovim in a headless window, not yet on a real Mac or Windows machine). Mouse clicks and dragging are also tested against real Neovim in a headless window; they have not been tried on real macOS or Windows hardware. Not yet: clipboard shortcuts, high-DPI polish, command-line/popup-menu/tab-line/multigrid UI, a bundled Neovim, or signed/notarized packages. Design notes are maintained separately.
 
 ## Prebuilt builds
 
@@ -75,7 +75,11 @@ File > Exit and the application Quit action use the same confirmation path. Duri
 
 RPC request failures and `nvim_error_event` notifications are written to `mygonvim.log` in MyGo's application log directory (`PathLogs`). In portable mode this is `data/mygonvim/logs/mygonvim.log`. The log also goes to stderr when one is available. It starts over when the next write would exceed 1 MiB; an oversized existing log is cleared on startup. If the log file cannot be opened, logging continues on stderr. Error events include their type and message; a recent call name is only a hint and does not identify the failing request.
 
-## Mouse wheel and touchpad
+## Mouse
+
+Left, right and middle button presses, drags and releases go to Neovim as `nvim_input_mouse`, with Shift, Ctrl, Alt and Command (Super). Neovim decides what each button and double/triple click do: left clicks place the cursor or switch splits, dragging selects text, double clicks select words and triple clicks select lines. The default right click opens Neovim's popup; the middle button puts register text. This does not add a separate GUI context menu.
+
+Coordinates share the wheel's cell mapping and clamp to the grid edges. Drag events are sent only when the cell changes. Only one button gesture is active at a time, matching MyGo's capture model. A new press first releases the previous gesture at the current clamped cell, even for the same button; this prevents overlapping buttons from leaving a stuck drag. An active press is also released outside the window or when focus is lost. A gesture started while Neovim reports `mouse_off` is ignored until release; an already forwarded press still gets a release after `mouse_off`. Hover and side buttons are not forwarded.
 
 Scroll events go to Neovim as `nvim_input_mouse` wheel steps at the cell under the pointer, so with split windows the one under the pointer scrolls. Each step moves what Neovim's `mousescroll` option defaults to: three lines up or down, six columns sideways. The editor assumes that default; a changed `mousescroll` is not read.
 
@@ -84,7 +88,7 @@ Scroll events go to Neovim as `nvim_input_mouse` wheel steps at the cell under t
 - Shift, Ctrl, Alt and Command (Super) are passed on, so Neovim sees `<S-ScrollWheelDown>` and so on, and its mappings and defaults for them apply (by default Shift+wheel scrolls a page).
 - While Neovim says its `mouse` option is off for the current mode (`mouse_off`), as with `set mouse=` or on the command line with the default `mouse=nvi`, scrolling is ignored.
 
-The steps, the cell mapping and the Neovim side are tested, including a real Neovim scrolling a long buffer; how a real trackpad feels (speed, momentum) has not been tried. Mouse clicks and dragging are not forwarded yet.
+Headless tests with real Neovim cover clicks, selection, split switching, double/triple clicks, right/middle buttons, modifiers, the `mouse` option and scrolling. Mouse and touchpad behavior on real macOS and Windows hardware (including capture outside the window, speed and momentum) has not been tried.
 
 ## Fonts
 

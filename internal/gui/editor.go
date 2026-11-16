@@ -57,12 +57,13 @@ type Hooks struct {
 // Editor is the view of one Neovim. Create it with NewEditor, give View to the
 // window, and let OnRedraw receive the session's redraw notifications.
 type Editor struct {
-	Model *grid.Model
-	be    Backend
-	tr    *input.Translator
-	wheel *input.Wheel
-	cfg   Config
-	hooks Hooks
+	Model   *grid.Model
+	be      Backend
+	tr      *input.Translator
+	wheel   *input.Wheel
+	pointer input.Pointer
+	cfg     Config
+	hooks   Hooks
 
 	// The font sources: the -font flag and the defaults never change; the
 	// 'guifont' option arrives on Neovim's goroutine, under fontMu. Neovim's
@@ -160,12 +161,34 @@ func (e *Editor) View(c *ui.Context) {
 
 // handle is the box's HandleInput.
 func (e *Editor) handle(ev ui.InputEvent) bool {
+	if ev.Kind == ui.InputPointerDown || ev.Kind == ui.InputPointerMove || ev.Kind == ui.InputPointerUp {
+		return e.point(ev)
+	}
 	if ev.Kind == ui.InputScroll {
 		return e.scroll(ev)
 	}
 	keys, taken := e.tr.Handle(ev)
 	if keys != "" {
 		e.be.Input(keys)
+	}
+	return taken
+}
+
+// point shares the wheel's clamped cell mapping and mouse_off state. Pointer
+// follows MyGo's single captured press, releasing it before a new Down. Calls
+// stay ordered in the backend queue; before cell metrics are known it takes
+// nothing, as scroll does.
+func (e *Editor) point(ev ui.InputEvent) bool {
+	if e.cw <= 0 || e.ch <= 0 {
+		return false
+	}
+	cols, rows := e.Model.Size()
+	row, col := input.CellAt(ev.X, ev.Y, e.cw, e.ch, cols, rows)
+	var off bool
+	e.Model.Read(func(s *grid.State) { off = s.MouseOff })
+	events, taken := e.pointer.Handle(ev, row, col, !off)
+	for _, m := range events {
+		e.be.Mouse(m.Button, m.Action, m.Modifier, m.Row, m.Col)
 	}
 	return taken
 }
