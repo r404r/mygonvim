@@ -196,6 +196,41 @@ func TestCommandOpensLiteralBracketFile(t *testing.T) {
 	}
 }
 
+func TestCommandOpensLiteralBracketDirectory(t *testing.T) {
+	nv := startNvim(t)
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(root, "dir[1]")
+	if err := os.Mkdir(want, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "dir1"), []byte("a file, not the requested directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := nv.Command(Command(runtime.GOOS, []string{want})); err != nil {
+		t.Fatal(err)
+	}
+	var shown string
+	if err := nv.Eval(`get(b:, "netrw_curdir", "")`, &shown); err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(shown) != want {
+		t.Errorf("directory shown is %q, want %q", shown, want)
+	}
+	var args []string
+	if err := nv.Call("argv", &args); err != nil {
+		t.Fatal(err)
+	}
+	for i := range args {
+		args[i] = filepath.Clean(args[i])
+	}
+	if !reflect.DeepEqual(args, []string{want}) {
+		t.Errorf("argument list is %q, want only %q", args, want)
+	}
+}
+
 func TestCommandSeveralFilesAndDirectory(t *testing.T) {
 	nv := startNvim(t)
 	root := t.TempDir()
