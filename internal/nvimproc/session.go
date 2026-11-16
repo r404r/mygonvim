@@ -28,6 +28,9 @@ type Options struct {
 	InitCmds []string
 	// Version is the GUI build version, reported in nvim_set_client_info.
 	Version string
+	// Clipboard supplies plain text for the + and * registers; nil leaves
+	// Neovim's provider alone. User configuration always takes precedence.
+	Clipboard *Clipboard
 	// Cols and Rows are the grid the UI attaches with.
 	Cols, Rows int
 	// OnRedraw gets each "redraw" notification's updates, on the client's
@@ -65,6 +68,7 @@ type Session struct {
 	logf       func(string, ...any)
 	callMu     sync.Mutex
 	recentCall string
+	clipboard  *clipboardProvider
 }
 
 type opKind uint8
@@ -74,6 +78,9 @@ const (
 	opCommand
 	opResize
 	opMouse
+	opPaste
+	opCopy
+	opCut
 )
 
 type op struct {
@@ -136,6 +143,14 @@ func Start(o Options) (*Session, error) {
 	}
 	s := &Session{nv: nv, cmd: cmd, stderr: stderr, done: make(chan struct{}), logf: logf}
 	s.cond = sync.NewCond(&s.mu)
+	if o.Clipboard != nil {
+		s.clipboard = newClipboardProvider(*o.Clipboard, logf)
+		if err := s.clipboard.register(nv.RegisterHandler); err != nil {
+			s.kill()
+			cmd.Wait()
+			return nil, err
+		}
+	}
 	if err := s.registerErrors(nv.RegisterHandler); err != nil {
 		s.kill()
 		cmd.Wait()
@@ -178,6 +193,12 @@ func Start(o Options) (*Session, error) {
 		s.Close()
 		return nil, fmt.Errorf("nvim_set_client_info: %w", err)
 	}
+	if s.clipboard != nil {
+		if err := nv.ExecLua(clipboardSetup, nil, nv.ChannelID()); err != nil {
+			s.Close()
+			return nil, fmt.Errorf("clipboard setup: %w", err)
+		}
+	}
 	if err := nv.AttachUI(o.Cols, o.Rows, UIOptions()); err != nil {
 		s.Close()
 		return nil, fmt.Errorf("nvim_ui_attach: %w (nvim said: %q)", err, s.stderr.String())
@@ -208,6 +229,17 @@ func (s *Session) Input(keys string) {
 		s.push(op{kind: opInput, s: keys})
 	}
 }
+
+// Paste queues literal text through nvim_paste, in order with surrounding keys.
+func (s *Session) Paste(text string) {
+	if text != "" {
+		s.push(op{kind: opPaste, s: text})
+	}
+}
+
+// Copy and Cut affect only a Visual or Select selection, using the + register.
+func (s *Session) Copy() { s.push(op{kind: opCopy}) }
+func (s *Session) Cut()  { s.push(op{kind: opCut}) }
 
 // Mouse queues nvim_input_mouse: button is "left", "right", "middle", "x1",
 // "x2" or "wheel"; action is "press", "drag", "release" or "move", and for the
@@ -291,6 +323,14 @@ func (s *Session) work() {
 			s.calling(method)
 			m := o.mouse
 			err = s.nv.InputMouse(m.button, m.action, m.modifier, 0, m.row, m.col)
+		case opPaste:
+			method = "nvim_paste"
+			s.calling(method)
+			err = pasteText(o.s, s.nv.Paste)
+		case opCopy, opCut:
+			method = "clipboard selection"
+			s.calling(method)
+			err = s.nv.ExecLua(copySelection, nil, o.kind == opCut)
 		}
 		if err != nil && !s.exitedSoon() {
 			s.logf("%s request failed: %v", method, err)

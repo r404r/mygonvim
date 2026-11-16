@@ -96,7 +96,7 @@ func (t *Translator) keyDown(ev ui.InputEvent) (string, bool) {
 		return "", false // a modifier on its own, or a key of no name
 	}
 	if ev.Mods&ui.Super != 0 {
-		return "", false // the app's shortcuts; Cmd+C/V come with MVP step 2
+		return "", false // app shortcuts; native Edit sends InputCommand
 	}
 	t.dropText, t.pending = false, ui.KeyUnknown
 	if name, ok := specialNames[key]; ok {

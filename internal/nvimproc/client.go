@@ -34,8 +34,13 @@ func (s *Session) identify(version string) error {
 	if s.nv.ChannelID() == 0 {
 		return errors.New("nvim_get_api_info: missing channel ID")
 	}
+	methods := map[string]*nvim.ClientMethod{}
+	if s.clipboard != nil {
+		methods["mygonvim.clipboard_get"] = &nvim.ClientMethod{NArgs: nvim.ClientMethodNArgs{Min: 1, Max: 1}}
+		methods["mygonvim.clipboard_set"] = &nvim.ClientMethod{NArgs: nvim.ClientMethodNArgs{Min: 3, Max: 3}}
+	}
 	return s.nv.SetClientInfo("mygonvim", clientVersion(version), nvim.UIClientType,
-		map[string]*nvim.ClientMethod{}, nvim.ClientAttributes{
+		methods, nvim.ClientAttributes{
 			"website": "https://github.com/r404r/mygonvim", "license": "MIT",
 		})
 }
