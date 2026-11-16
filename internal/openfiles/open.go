@@ -16,9 +16,10 @@ import "strings"
 //
 // Paths are quoted by Escape so that spaces, '%', '#', '|' and the like reach
 // :drop as part of a file name. Paths should be absolute: a name starting with
-// '~' would still be expanded by Neovim. On Windows, paths containing '[' must
-// exist: if the quoted wildcard pattern matches nothing, :drop may use that
-// pattern as the new buffer name instead of the original path.
+// '~' would still be expanded by Neovim. Existing paths may name files or
+// directories; :drop's wildcard expansion includes both. On Windows, paths
+// containing '[' must exist: if the quoted wildcard pattern matches nothing,
+// :drop may use that pattern as the new buffer name instead of the original path.
 func Command(goos string, paths []string) string {
 	var b strings.Builder
 	for _, p := range paths {
