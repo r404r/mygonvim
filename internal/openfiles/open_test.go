@@ -152,6 +152,12 @@ func TestCommandOpensFilesInNvim(t *testing.T) {
 func TestCommandSeveralFilesAndDirectory(t *testing.T) {
 	nv := startNvim(t)
 	root := t.TempDir()
+	// netrw reports the physical path; macOS's temporary directory uses /var
+	// as a symlink to /private/var.
+	root, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var files []string
 	for _, n := range []string{"a one.txt", "b#two.txt", "c.txt"} {
 		p := filepath.Join(root, n)

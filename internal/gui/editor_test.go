@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"golang.org/x/image/font/gofont/gomono"
 )
 
 // fake is a Backend that records what the editor sends.
@@ -179,7 +180,14 @@ func hasInk(e *env, col, row int, bg color.RGBA) bool {
 }
 
 func TestWideCharactersKeepTheirCells(t *testing.T) {
+	// Use the same monospaced Latin metrics on every runner. The system's
+	// generic monospace alias can select a proportional fallback on Windows.
+	const family = "MyGoNVim Test Mono"
+	if err := ui.RegisterFont(gomono.TTF, family); err != nil {
+		t.Fatal(err)
+	}
 	e := newEnv(t, 640, 400)
+	e.ed.SetFont(family, 14)
 	e.ed.OnRedraw(
 		ev("default_colors_set", i64(0xffffff, 0x000000, 0xff0000)),
 		ev("grid_line", []any{int64(1), int64(0), int64(0), []any{[]any{"中", int64(0)}, []any{""}, []any{"a", int64(0)}}, false}),

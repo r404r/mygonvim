@@ -100,7 +100,10 @@ func TestRealNvimEditAndSave(t *testing.T) {
 		typeKey(tt, ch)
 	}
 	tt.Key(0, ui.KeyEnter)
-	wait("notes.txt to open", func() bool { v, _ := title.Load().(string); return strings.Contains(v, "notes.txt") })
+	wait("notes.txt to open", func() bool {
+		var name string
+		return sess.Nvim().Eval("expand('%:t')", &name) == nil && name == "notes.txt"
+	})
 	sess.Command("setlocal fileformat=unix")
 	typeKey(tt, 'i')
 	wait("insert mode", func() bool { var m string; read(func(s *grid.State) { m = s.Mode }); return m == "insert" })
@@ -190,6 +193,8 @@ func typeKey(tt *ui.Tester, ch rune) {
 			key, mods = ui.KeyComma, ui.Shift
 		case '/':
 			key = ui.KeySlash
+		case '\\':
+			key = ui.KeyBackslash
 		case '.':
 			key = ui.KeyPeriod
 		case '-':
