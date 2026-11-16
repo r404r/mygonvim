@@ -120,6 +120,22 @@ MYGONVIM_SCREENSHOT=shot.png NVIM_BIN=... go test -run RealNvim ./internal/gui
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build .
 ```
 
+CI runs `go vet ./...` and all package tests on Linux, macOS and Windows,
+including headless MyGo views and real `nvim --embed` sessions. All three
+runners download the official Neovim release pinned by `NVIM_VERSION` in
+`.github/workflows/ci.yml`. Linux also uses `-race`; macOS and Windows run
+without it. The four cross-build targets continue to use `CGO_ENABLED=0`.
+
+CI sets `NVIM_BIN` to the downloaded executable's absolute path: a missing
+or broken executable fails the real Neovim tests instead of skipping them.
+Locally, those tests skip when neither `NVIM_BIN` nor Neovim on `PATH` is
+available. Test events, including individual passes and skips with reasons,
+are in the job logs and the `test-results-*` artifacts (`go test -json`).
+Windows skips only file-opening cases with names its filesystem forbids;
+the escaping comparison against Neovim still covers those characters.
+These CI checks do not verify native menus, real input methods, gestures,
+or packaged applications on a physical Windows or macOS machine.
+
 Layout: `internal/grid` (screen model from `redraw` events), `internal/input` (keys and IME to `nvim_input` notation; scroll events to wheel steps), `internal/nvimproc` (find, start and talk to nvim), `internal/appmenu` (the menu bar), `internal/openfiles` (paths to the Ex command that opens them), `internal/fontcfg` (which font wins; `guifont` parsing), `internal/gui` (the MyGo view that draws the grid). MyGo is pinned in `go.mod` to the release v0.9.0.
 
 ## License

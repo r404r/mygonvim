@@ -47,9 +47,13 @@ func TestRealNvimOpensDroppedFiles(t *testing.T) {
 	}
 	dir := t.TempDir()
 	first := filepath.Join(dir, "first one #1.txt")
-	second := filepath.Join(dir, "100%|second.txt")
-	os.WriteFile(first, []byte("content of the first file\n"), 0o644)
-	os.WriteFile(second, []byte("content of the second file\n"), 0o644)
+	second := filepath.Join(dir, "100%'second.txt")
+	if err := os.WriteFile(first, []byte("content of the first file\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("content of the second file\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	var ed *Editor
 	ed = NewEditor(nil, Config{FontFamily: "monospace", FontSize: 14, Cols: 80, Rows: 24}, Hooks{})

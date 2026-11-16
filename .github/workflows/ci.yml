@@ -8,6 +8,13 @@ on:
 permissions:
   contents: read
 
+env:
+  NVIM_VERSION: v0.12.6
+
+defaults:
+  run:
+    shell: bash
+
 jobs:
   test:
     name: vet + test (Linux, real Neovim)
@@ -17,16 +24,22 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: Install Neovim (stable release)
+      - name: Install Neovim (pinned release)
         run: |
-          curl -fsSL https://github.com/neovim/neovim/releases/download/stable/nvim-linux-x86_64.tar.gz | tar xz -C "$HOME"
+          curl -fsSL "https://github.com/neovim/neovim/releases/download/$NVIM_VERSION/nvim-linux-x86_64.tar.gz" | tar xz -C "$HOME"
           echo "$HOME/nvim-linux-x86_64/bin" >> "$GITHUB_PATH"
+          echo "NVIM_BIN=$HOME/nvim-linux-x86_64/bin/nvim" >> "$GITHUB_ENV"
       - run: nvim --version | head -3
       - run: go vet ./...
-      - run: go test -count=1 -race ./...
+      - run: go test -count=1 -race -json ./... | tee test-results.jsonl
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-linux
+          path: test-results.jsonl
 
   unit:
-    name: unit tests (${{ matrix.os }})
+    name: vet + test (${{ matrix.os }}, real Neovim)
     strategy:
       fail-fast: false
       matrix:
@@ -37,9 +50,35 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      # The pure logic: grid model, key translation, nvim lookup and portable
-      # environment. The window tests need fonts and nvim and run on Linux.
-      - run: go test -count=1 . ./internal/grid ./internal/input ./internal/nvimproc ./internal/appmenu ./internal/fontcfg ./internal/openfiles
+      - name: Install Neovim (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          case "$RUNNER_ARCH" in
+            ARM64) arch=arm64 ;;
+            X64) arch=x86_64 ;;
+            *) echo "Unsupported runner architecture: $RUNNER_ARCH"; exit 1 ;;
+          esac
+          curl -fsSL "https://github.com/neovim/neovim/releases/download/$NVIM_VERSION/nvim-macos-$arch.tar.gz" | tar xz -C "$HOME"
+          echo "$HOME/nvim-macos-$arch/bin" >> "$GITHUB_PATH"
+          echo "NVIM_BIN=$HOME/nvim-macos-$arch/bin/nvim" >> "$GITHUB_ENV"
+      - name: Install Neovim (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'nvim.zip'
+          Invoke-WebRequest "https://github.com/neovim/neovim/releases/download/$env:NVIM_VERSION/nvim-win64.zip" -OutFile $archive
+          Expand-Archive $archive -DestinationPath $env:RUNNER_TEMP
+          $bin = Join-Path $env:RUNNER_TEMP 'nvim-win64/bin'
+          $bin >> $env:GITHUB_PATH
+          "NVIM_BIN=$(Join-Path $bin 'nvim.exe')" >> $env:GITHUB_ENV
+      - run: nvim --version
+      - run: go vet ./...
+      - run: go test -count=1 -json ./... | tee test-results.jsonl
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: test-results-${{ matrix.os }}
+          path: test-results.jsonl
 
   cross-build:
     name: build ${{ matrix.goos }}/${{ matrix.goarch }} (no cgo)

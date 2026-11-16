@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -105,7 +106,7 @@ func TestEscapeMatchesNvimFnameescape(t *testing.T) {
 		if err := nv.Call("fnameescape", &want, n); err != nil {
 			t.Fatal(err)
 		}
-		if got := Escape("linux", n); got != want {
+		if got := Escape(runtime.GOOS, n); got != want {
 			t.Errorf("Escape(%q) = %q, fnameescape() = %q", n, got, want)
 		}
 	}
@@ -120,29 +121,28 @@ func TestCommandOpensFilesInNvim(t *testing.T) {
 		"dollar$x.txt", "angle<x.txt", "bang!.txt", "star*.txt", "文档 说明.md", "+plus.txt", ">gt.txt",
 		"brace{x}.txt", "back`tick.txt",
 	}
-	if os.PathSeparator == '/' {
-		names = append(names, `back\slash.txt`, "tab\there.txt")
-	}
+	names = append(names, `back\slash.txt`, "tab\there.txt")
 	sub := filepath.Join(root, "dir with space")
 	if err := os.Mkdir(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	for _, n := range names {
-		if err := os.WriteFile(filepath.Join(sub, n), []byte("x"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, n := range names {
 		t.Run(n, func(t *testing.T) {
+			if runtime.GOOS == "windows" && strings.ContainsAny(n, "<>|*\\\t") {
+				t.Skip("Windows file names cannot contain <, >, |, *, backslash or tab; escaping is covered by TestEscapeMatchesNvimFnameescape")
+			}
 			p := filepath.Join(sub, n)
-			if err := nv.Command(Command("linux", []string{p})); err != nil {
-				t.Fatalf("nvim rejected %q: %v", Command("linux", []string{p}), err)
+			if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := nv.Command(Command(runtime.GOOS, []string{p})); err != nil {
+				t.Fatalf("nvim rejected %q: %v", Command(runtime.GOOS, []string{p}), err)
 			}
 			var cur string
 			if err := nv.Call("expand", &cur, "%:p"); err != nil {
 				t.Fatal(err)
 			}
-			if cur != p {
+			if filepath.Clean(cur) != filepath.Clean(p) {
 				t.Errorf("current buffer is %q, want %q", cur, p)
 			}
 		})
@@ -160,19 +160,22 @@ func TestCommandSeveralFilesAndDirectory(t *testing.T) {
 		}
 		files = append(files, p)
 	}
-	if err := nv.Command(Command("linux", files)); err != nil {
+	if err := nv.Command(Command(runtime.GOOS, files)); err != nil {
 		t.Fatal(err)
 	}
 	var cur string
 	if err := nv.Call("expand", &cur, "%:p"); err != nil {
 		t.Fatal(err)
 	}
-	if cur != files[0] {
+	if filepath.Clean(cur) != filepath.Clean(files[0]) {
 		t.Errorf("shown file is %q, want the first, %q", cur, files[0])
 	}
 	var args []string
 	if err := nv.Call("argv", &args); err != nil {
 		t.Fatal(err)
+	}
+	for i := range args {
+		args[i] = filepath.Clean(args[i])
 	}
 	if !reflect.DeepEqual(args, files) {
 		t.Errorf("argument list is %q, want %q", args, files)
@@ -184,14 +187,14 @@ func TestCommandSeveralFilesAndDirectory(t *testing.T) {
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := nv.Command(Command("linux", []string{dir})); err != nil {
+	if err := nv.Command(Command(runtime.GOOS, []string{dir})); err != nil {
 		t.Fatal(err)
 	}
 	var shown string
 	if err := nv.Eval(`get(b:, "netrw_curdir", "")`, &shown); err != nil {
 		t.Fatal(err)
 	}
-	if shown != dir {
+	if filepath.Clean(shown) != filepath.Clean(dir) {
 		t.Errorf("after opening a directory the explorer shows %q, want %q", shown, dir)
 	}
 }
