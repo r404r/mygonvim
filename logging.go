@@ -20,8 +20,25 @@ func startLogging(stderr io.Writer) io.Closer {
 		log.Printf("logs: cannot open log file: %v", err)
 		return nil
 	}
-	// A GUI launch may have an unusable stderr. Write the file first so a
-	// failure of stderr cannot prevent the persistent copy from being written.
-	log.SetOutput(io.MultiWriter(f, stderr))
+	// Write the file first, but always try both destinations so a failure in
+	// either one cannot prevent the other from receiving the log.
+	log.SetOutput(teeWriter{f, stderr})
 	return f
+}
+
+// teeWriter writes to every destination even when an earlier one fails.
+type teeWriter []io.Writer
+
+func (t teeWriter) Write(p []byte) (int, error) {
+	var first error
+	for _, w := range t {
+		n, err := w.Write(p)
+		if err == nil && n != len(p) {
+			err = io.ErrShortWrite
+		}
+		if first == nil {
+			first = err
+		}
+	}
+	return len(p), first
 }

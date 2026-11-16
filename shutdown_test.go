@@ -68,9 +68,12 @@ func waitForShutdown(t *testing.T, what string, condition func() bool) {
 }
 
 func TestCloseConfirmationAgainstRealNvim(t *testing.T) {
-	bin, err := nvimproc.Locate(os.Getenv("NVIM_BIN"), "", nil)
-	if err != nil {
-		t.Fatal(err)
+	bin := os.Getenv("NVIM_BIN")
+	if bin == "" {
+		var err error
+		if bin, err = nvimproc.Locate("", "", nil); err != nil {
+			t.Skip("no nvim: set NVIM_BIN or put nvim on PATH")
+		}
 	}
 	for _, modified := range []bool{false, true} {
 		name := "clean"

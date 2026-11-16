@@ -15,15 +15,6 @@ import (
 	"github.com/r404r/mygonvim/internal/logfile"
 )
 
-func requiredNvim(t *testing.T) string {
-	t.Helper()
-	bin, err := Locate(os.Getenv("NVIM_BIN"), "", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return bin
-}
-
 func TestClientInfoAgainstRealNvim(t *testing.T) {
 	for _, tc := range []struct {
 		version string
@@ -35,7 +26,7 @@ func TestClientInfoAgainstRealNvim(t *testing.T) {
 	} {
 		t.Run(tc.version, func(t *testing.T) {
 			s, err := Start(Options{
-				Bin: requiredNvim(t), Args: []string{"--clean"}, Version: tc.version,
+				Bin: testBin(t), Args: []string{"--clean"}, Version: tc.version,
 				Env:      PortableEnv(os.Environ(), t.TempDir()),
 				InitCmds: []string{"autocmd UIEnter * let g:client_at_attach = nvim_get_chan_info(v:event.chan).client"},
 			})
@@ -107,7 +98,7 @@ func TestRequestErrorReachesLogFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	s, err := Start(Options{Bin: requiredNvim(t), Args: []string{"--clean"}, Env: PortableEnv(os.Environ(), t.TempDir()), Logf: log.New(f, "", 0).Printf})
+	s, err := Start(Options{Bin: testBin(t), Args: []string{"--clean"}, Env: PortableEnv(os.Environ(), t.TempDir()), Logf: log.New(f, "", 0).Printf})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +122,7 @@ func TestNotificationErrorReachesLogFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer f.Close()
-	s, err := Start(Options{Bin: requiredNvim(t), Args: []string{"--clean"}, Env: PortableEnv(os.Environ(), t.TempDir()), Logf: log.New(f, "", 0).Printf})
+	s, err := Start(Options{Bin: testBin(t), Args: []string{"--clean"}, Env: PortableEnv(os.Environ(), t.TempDir()), Logf: log.New(f, "", 0).Printf})
 	if err != nil {
 		t.Fatal(err)
 	}

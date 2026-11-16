@@ -63,3 +63,25 @@ func TestLoggingFallsBackWhenFileCannotOpen(t *testing.T) {
 		t.Fatalf("fallback log: %s", got)
 	}
 }
+
+func TestLoggingReachesStderrWhenFileWriteFails(t *testing.T) {
+	oldWriter := log.Writer()
+	oldPath, err := mygo.App.Path(mygo.PathLogs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { log.SetOutput(oldWriter); mygo.App.SetPath(mygo.PathLogs, oldPath) })
+	mygo.App.SetPath(mygo.PathLogs, t.TempDir())
+	var stderr bytes.Buffer
+	file := startLogging(&stderr)
+	if file == nil {
+		t.Fatal("no log file")
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+	log.Print("still visible after file write failure")
+	if got := stderr.String(); !strings.Contains(got, "still visible after file write failure") {
+		t.Fatalf("stderr log: %q", got)
+	}
+}

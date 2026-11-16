@@ -69,20 +69,11 @@ Dropping files from Finder or Explorer on the window opens them: MyGoNVim runs `
 
 Closing the window runs `:confirm qa`: Neovim asks about unsaved changes on its own command line, and the window closes when Neovim has quit.
 
-File > Exit and the application Quit action use the same confirmation path.
-During OS logout or shutdown, MyGo ignores cancellation of window close events;
-the application cannot keep the window open for this prompt. Save your work before
-ending the OS session. Native close gestures still need macOS and Windows testing.
+File > Exit and the application Quit action use the same confirmation path. During OS logout or shutdown, MyGo ignores cancellation of window close events; the application cannot keep the window open for this prompt. Save your work before ending the OS session. Native close gestures still need macOS and Windows testing.
 
 ### Logs
 
-RPC request failures and `nvim_error_event` notifications are written to
-`mygonvim.log` in MyGo's application log directory (`PathLogs`). In portable mode
-this is `data/mygonvim/logs/mygonvim.log`. The log also goes to stderr when one is
-available. It starts over when the next write would exceed 1 MiB; an oversized
-existing log is cleared on startup. If the log file cannot be opened, logging
-continues on stderr. Error events include their type and message; a recent call
-name is only a hint and does not identify the failing request.
+RPC request failures and `nvim_error_event` notifications are written to `mygonvim.log` in MyGo's application log directory (`PathLogs`). In portable mode this is `data/mygonvim/logs/mygonvim.log`. The log also goes to stderr when one is available. It starts over when the next write would exceed 1 MiB; an oversized existing log is cleared on startup. If the log file cannot be opened, logging continues on stderr. Error events include their type and message; a recent call name is only a hint and does not identify the failing request.
 
 ## Mouse wheel and touchpad
 

@@ -9,7 +9,9 @@ import (
 )
 
 const (
-	Name    = "mygonvim.log"
+	// Name is the application log filename within the chosen directory.
+	Name = "mygonvim.log"
+	// MaxSize is the maximum log file size in bytes.
 	MaxSize = 1024 * 1024
 )
 
@@ -21,6 +23,8 @@ type File struct {
 	size int64
 }
 
+// Open creates the log directory and opens Name for appending, clearing it if
+// the existing file is larger than MaxSize.
 func Open(dir string) (*File, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
@@ -43,6 +47,8 @@ func Open(dir string) (*File, error) {
 	return &File{f: f, size: size}, nil
 }
 
+// Write appends p, clearing the file first if it would exceed MaxSize. A write
+// larger than MaxSize keeps only its tail but returns len(p) on success.
 func (f *File) Write(p []byte) (int, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -67,6 +73,7 @@ func (f *File) Write(p []byte) (int, error) {
 	return original, nil
 }
 
+// Close closes the log file after any write in progress finishes.
 func (f *File) Close() error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
