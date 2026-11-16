@@ -195,6 +195,8 @@ func typeKey(tt *ui.Tester, ch rune) {
 			key = ui.KeySlash
 		case '\\':
 			key = ui.KeyBackslash
+		case '~':
+			key, mods = ui.KeyBackquote, ui.Shift
 		case '.':
 			key = ui.KeyPeriod
 		case '-':

@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/egoist/mygo/ui"
-	"golang.org/x/image/font/gofont/gomono"
 )
 
 // fake is a Backend that records what the editor sends.
@@ -180,14 +179,7 @@ func hasInk(e *env, col, row int, bg color.RGBA) bool {
 }
 
 func TestWideCharactersKeepTheirCells(t *testing.T) {
-	// Use the same monospaced Latin metrics on every runner. The system's
-	// generic monospace alias can select a proportional fallback on Windows.
-	const family = "MyGoNVim Test Mono"
-	if err := ui.RegisterFont(gomono.TTF, family); err != nil {
-		t.Fatal(err)
-	}
 	e := newEnv(t, 640, 400)
-	e.ed.SetFont(family, 14)
 	e.ed.OnRedraw(
 		ev("default_colors_set", i64(0xffffff, 0x000000, 0xff0000)),
 		ev("grid_line", []any{int64(1), int64(0), int64(0), []any{[]any{"中", int64(0)}, []any{""}, []any{"a", int64(0)}}, false}),
@@ -201,8 +193,22 @@ func TestWideCharactersKeepTheirCells(t *testing.T) {
 	if !hasInk(e, 0, 0, color.RGBA{0, 0, 0, 255}) && !hasInk(e, 1, 0, color.RGBA{0, 0, 0, 255}) {
 		t.Log("no ink for the wide character: this machine has no CJK font (not an error)")
 	}
-	if hasInk(e, 3, 0, color.RGBA{0, 0, 0, 255}) {
-		t.Error("ink in column 3: glyphs moved off their cells")
+	// Compare with the same glyph alone in column 2. Some system fonts have
+	// ink beyond the advance; that overhang must be identical, not displaced
+	// by the wide character or its fallback font.
+	ref := newEnv(t, 640, 400)
+	ref.ed.OnRedraw(
+		ev("default_colors_set", i64(0xffffff, 0x000000, 0xff0000)),
+		ev("grid_line", []any{int64(1), int64(0), int64(2), []any{[]any{"a", int64(0)}}, false}),
+		ev("flush", []any{}),
+	)
+	ref.tt.Frame()
+	for y := 0; y < int(e.ed.ch); y++ {
+		for x := int(2 * e.ed.cw); x < int(5*e.ed.cw); x++ {
+			if px(e, x, y) != px(ref, x, y) {
+				t.Fatalf("glyph after wide character differs from column 2 reference at (%d, %d)", x, y)
+			}
+		}
 	}
 }
 
