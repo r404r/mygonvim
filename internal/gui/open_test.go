@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -96,6 +97,15 @@ func TestRealNvimOpensDroppedFiles(t *testing.T) {
 
 	ed.OpenFiles([]string{second})
 	wait("the second file", "content of the second file")
+
+	if runtime.GOOS != "windows" {
+		third := filepath.Join(dir, "pipe|third.txt")
+		if err := os.WriteFile(third, []byte("content of the pipe file\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ed.OpenFiles([]string{third})
+		wait("the file with a pipe in its name", "content of the pipe file")
+	}
 }
 
 // The File > Open... path end to end, with the dialog stubbed: chosen files

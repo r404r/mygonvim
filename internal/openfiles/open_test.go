@@ -150,6 +150,40 @@ func TestCommandOpensFilesInNvim(t *testing.T) {
 	}
 }
 
+func TestCommandOpensLiteralBracketFile(t *testing.T) {
+	nv := startNvim(t)
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(root, "report[1].txt")
+	for _, path := range []string{want, filepath.Join(root, "report1.txt")} {
+		if err := os.WriteFile(path, []byte(filepath.Base(path)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := nv.Command(Command(runtime.GOOS, []string{want})); err != nil {
+		t.Fatal(err)
+	}
+	var cur string
+	if err := nv.Call("expand", &cur, "%:p"); err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(cur) != want {
+		t.Errorf("current buffer is %q, want %q", cur, want)
+	}
+	var args []string
+	if err := nv.Call("argv", &args); err != nil {
+		t.Fatal(err)
+	}
+	for i := range args {
+		args[i] = filepath.Clean(args[i])
+	}
+	if !reflect.DeepEqual(args, []string{want}) {
+		t.Errorf("argument list is %q, want only %q", args, want)
+	}
+}
+
 func TestCommandSeveralFilesAndDirectory(t *testing.T) {
 	nv := startNvim(t)
 	root := t.TempDir()

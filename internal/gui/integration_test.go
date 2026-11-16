@@ -43,7 +43,7 @@ func TestRealNvimEditAndSave(t *testing.T) {
 	})
 	sess, err := nvimproc.Start(nvimproc.Options{
 		Bin: bin, Cols: 80, Rows: 24,
-		Args:     []string{"--clean", "-c", "set termguicolors fileformat=unix | colorscheme habamax | set number | syntax on", sample},
+		Args:     []string{"--clean", "-c", "set termguicolors fileformat=unix titlelen=0 | colorscheme habamax | set number | syntax on", sample},
 		Env:      nvimproc.PortableEnv(os.Environ(), filepath.Join(dir, "data")),
 		OnRedraw: func(u ...[]any) { ed.OnRedraw(u...) },
 		Logf:     t.Logf,
@@ -104,7 +104,13 @@ func TestRealNvimEditAndSave(t *testing.T) {
 		var name string
 		return sess.Nvim().Eval("expand('%:t')", &name) == nil && name == "notes.txt"
 	})
-	sess.Command("setlocal fileformat=unix")
+	wait("notes.txt in the window title", func() bool {
+		v, _ := title.Load().(string)
+		return strings.Contains(v, "notes.txt")
+	})
+	if err := sess.Nvim().Command("setlocal fileformat=unix"); err != nil {
+		t.Fatal(err)
+	}
 	typeKey(tt, 'i')
 	wait("insert mode", func() bool { var m string; read(func(s *grid.State) { m = s.Mode }); return m == "insert" })
 	tt.Frame()
