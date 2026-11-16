@@ -58,15 +58,19 @@ func clipLua(t *testing.T, s *Session, code string, result any, args ...any) {
 	}
 }
 
-func startClipboard(t *testing.T, init string, c *Clipboard) *Session {
+func startClipboard(t *testing.T, init string, c *Clipboard, loggers ...func(string, ...any)) *Session {
 	t.Helper()
+	logf := t.Logf
+	if len(loggers) != 0 {
+		logf = loggers[0]
+	}
 	path := filepath.Join(t.TempDir(), "init.lua")
 	if err := os.WriteFile(path, []byte(init), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	s, err := Start(Options{
 		Bin: testBin(t), Args: []string{"--noplugin", "-i", "NONE", "-u", path, "-c", "autocmd VimEnter * let g:clip_ready = 1"},
-		Env: PortableEnv(os.Environ(), t.TempDir()), Cols: 60, Rows: 12, Clipboard: c, Logf: t.Logf, OnRedraw: func(...[]any) {},
+		Env: PortableEnv(os.Environ(), t.TempDir()), Cols: 60, Rows: 12, Clipboard: c, Logf: logf, OnRedraw: func(...[]any) {},
 	})
 	if err != nil {
 		t.Fatal(err)

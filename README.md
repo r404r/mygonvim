@@ -103,6 +103,8 @@ Native register requests have a two-second deadline. Failures or timeouts return
 
 Real Neovim tests use a substitute clipboard to verify RPC callbacks, user-provider priority, selection commands and paste behavior. They do not verify the OS clipboard, native menu dispatch, cross-application exchange or IME interaction on macOS/Windows hardware.
 
+GUI Paste, Copy and Cut are ignored and logged when Neovim reports that it is waiting for a key (for example, after `"` or Insert-mode Ctrl+R). If a plugin starts waiting after that check, the queue stops waiting for the clipboard request after two seconds and continues sending later keys in order. The request already sent cannot be cancelled and may still change text or the clipboard when Neovim resumes. Remaining paste chunks are dropped; after the in-flight chunk returns, an empty final chunk closes a started stream. Further clipboard commands are ignored until that request and stream cleanup finish. Resize retains its existing behavior and can still delay queued input while Neovim waits for a key.
+
 ## Fonts
 
 For the font family and for the size, separately, the first of these that has a value is used:

@@ -2,6 +2,7 @@ package nvimproc
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -285,6 +286,7 @@ func (s *Session) push(o op) {
 
 // work makes the queued calls in order.
 func (s *Session) work() {
+	var clipboardPending <-chan error
 	for {
 		s.mu.Lock()
 		for len(s.queue) == 0 && !s.closed {
@@ -323,14 +325,58 @@ func (s *Session) work() {
 			s.calling(method)
 			m := o.mouse
 			err = s.nv.InputMouse(m.button, m.action, m.modifier, 0, m.row, m.col)
-		case opPaste:
-			method = "nvim_paste"
+		case opPaste, opCopy, opCut:
+			// Keep at most one clipboard request alive after a timeout. Its
+			// reply belongs to its own RPC and buffered result channel.
+			if clipboardPending != nil {
+				select {
+				case <-clipboardPending:
+					clipboardPending = nil
+				default:
+					s.logf("clipboard operation skipped: previous request still pending")
+					continue
+				}
+			}
+			method = "nvim_get_mode"
 			s.calling(method)
-			err = pasteText(o.s, s.nv.Paste)
-		case opCopy, opCut:
+			var mode *nvim.Mode
+			mode, err = s.nv.Mode()
+			if err != nil {
+				break
+			}
+			if mode.Blocking {
+				s.logf("clipboard operation skipped: Neovim is waiting for input")
+				continue
+			}
 			method = "clipboard selection"
+			if o.kind == opPaste {
+				method = "nvim_paste"
+			}
 			s.calling(method)
-			err = s.nv.ExecLua(copySelection, nil, o.kind == opCut)
+			ctx, cancel := context.WithTimeout(context.Background(), clipboardRequestTimeout)
+			result := make(chan error, 1)
+			go func(o op) {
+				var err error
+				if o.kind == opPaste {
+					err = pasteTextContext(ctx, o.s, s.nv.Paste)
+				} else {
+					err = s.nv.ExecLua(copySelection, nil, o.kind == opCut)
+				}
+				late := ctx.Err() != nil
+				result <- err
+				if late {
+					s.logf("clipboard request completed after deadline: %v", err)
+				}
+			}(o)
+			select {
+			case err = <-result:
+			case <-ctx.Done():
+				clipboardPending = result
+				cancel()
+				s.logf("%s request failed: %v; continuing queued input", method, ctx.Err())
+				continue
+			}
+			cancel()
 		}
 		if err != nil && !s.exitedSoon() {
 			s.logf("%s request failed: %v", method, err)

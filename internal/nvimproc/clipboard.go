@@ -93,6 +93,7 @@ func (c *clipboardProvider) set(lines []string, regtype, register string) (int, 
 const clipboardSetup = `
 local channel = ...
 vim.api.nvim_create_autocmd('VimEnter', {once = true, callback = function()
+  -- Even false is an explicit user choice; only an unset value uses our provider.
   if vim.g.clipboard ~= nil then return end
   local copy = function(register)
     return function(lines, regtype)
@@ -103,10 +104,12 @@ vim.api.nvim_create_autocmd('VimEnter', {once = true, callback = function()
     return function() return vim.rpcrequest(channel, 'mygonvim.clipboard_get', register) end
   end
   vim.g.clipboard = {
+    -- Read external clipboard changes instead of returning a cached yank.
     name = 'mygonvim', cache_enabled = false,
     copy = {['+'] = copy('+'), ['*'] = copy('*')},
     paste = {['+'] = paste('+'), ['*'] = paste('*')},
   }
+  -- Init may already have triggered built-in detection. Reload it with our provider.
   vim.g.loaded_clipboard_provider = nil
   vim.cmd('runtime autoload/provider/clipboard.vim')
 end})
@@ -115,11 +118,14 @@ end})
 const copySelection = `
 local cut = ...
 local mode = vim.fn.mode(1):sub(1, 1)
+-- Select uses the same register commands after switching to Visual without mappings.
 if mode == 's' or mode == 'S' or mode == '\019' then
   vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes('<C-g>', true, false, true), 'nx', false)
 elseif mode ~= 'v' and mode ~= 'V' and mode ~= '\022' then
+  -- Copy/Cut never act on a whole line merely because no selection is active.
   return
 end
+-- Non-remapped execution preserves the selection and ignores custom y/d mappings.
 vim.api.nvim_feedkeys('"+' .. (cut and 'd' or 'y'), 'nx', false)
 `
 
@@ -127,12 +133,32 @@ vim.api.nvim_feedkeys('"+' .. (cut and 'd' or 'y'), 'nx', false)
 // long line may exceed it. The entire stream remains one queue operation.
 const pasteChunkSize = 64 << 10
 
+// Bound the worker's wait, including a mode change after its fast preflight.
+// This does not cancel a request already sent to Neovim.
+const clipboardRequestTimeout = 2 * time.Second
+
 func pasteText(text string, paste func(string, bool, int) (bool, error)) error {
+	return pasteTextContext(context.Background(), text, paste)
+}
+
+func pasteTextContext(ctx context.Context, text string, paste func(string, bool, int) (bool, error)) (result error) {
 	if text == "" {
 		return nil
 	}
 	phase := -1
+	streaming := false
+	defer func() {
+		// A chunk already sent may run after the deadline. Close its stream
+		// after it replies, before allowing another clipboard operation.
+		if streaming && ctx.Err() != nil {
+			_, err := paste("", true, 3)
+			result = errors.Join(result, err)
+		}
+	}()
 	for text != "" {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		n := len(text)
 		if n > pasteChunkSize {
 			if end := strings.LastIndexByte(text[:pasteChunkSize], '\n'); end >= 0 {
@@ -155,6 +181,10 @@ func pasteText(text string, paste func(string, bool, int) (bool, error)) error {
 		}
 		if !ok {
 			return errors.New("paste cancelled by Neovim")
+		}
+		streaming = phase == 1 || phase == 2
+		if err := ctx.Err(); err != nil {
+			return err
 		}
 		text = text[n:]
 	}
