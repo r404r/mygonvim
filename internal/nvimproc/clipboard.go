@@ -133,9 +133,43 @@ vim.api.nvim_feedkeys('"+' .. (cut and 'd' or 'y'), 'nx', false)
 // long line may exceed it. The entire stream remains one queue operation.
 const pasteChunkSize = 64 << 10
 
-// Bound the worker's wait, including a mode change after its fast preflight.
-// This does not cancel a request already sent to Neovim.
+// Bound each request's wait, including a mode change after fast preflight.
+// A stream has no total duration limit while its requests keep replying.
 const clipboardRequestTimeout = 2 * time.Second
+
+func trackClipboardRequest(ctx context.Context, requests chan<- (<-chan struct{}), call func() (bool, error)) (bool, error) {
+	done := make(chan struct{})
+	select {
+	case requests <- done:
+	case <-ctx.Done():
+		return false, ctx.Err()
+	}
+	defer close(done)
+	return call()
+}
+
+func waitClipboardRequests(requests <-chan (<-chan struct{}), result <-chan error) (error, bool) {
+	for {
+		select {
+		case err := <-result:
+			return err, false
+		case done := <-requests:
+			// Start a fresh timer for every RPC, not for the whole paste.
+			timer := time.NewTimer(clipboardRequestTimeout)
+			select {
+			case <-done:
+				timer.Stop()
+			case <-timer.C:
+				// Prefer a reply already received at the deadline boundary.
+				select {
+				case <-done:
+				default:
+					return context.DeadlineExceeded, true
+				}
+			}
+		}
+	}
+}
 
 func pasteText(text string, paste func(string, bool, int) (bool, error)) error {
 	return pasteTextContext(context.Background(), text, paste)

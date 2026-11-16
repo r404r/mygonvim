@@ -353,14 +353,26 @@ func (s *Session) work() {
 				method = "nvim_paste"
 			}
 			s.calling(method)
-			ctx, cancel := context.WithTimeout(context.Background(), clipboardRequestTimeout)
+			ctx, cancel := context.WithCancel(context.Background())
+			requests := make(chan (<-chan struct{}))
 			result := make(chan error, 1)
 			go func(o op) {
 				var err error
 				if o.kind == opPaste {
-					err = pasteTextContext(ctx, o.s, s.nv.Paste)
+					err = pasteTextContext(ctx, o.s, func(text string, crlf bool, phase int) (bool, error) {
+						// Cleanup runs after a timed-out request returns, while
+						// the worker is already free to send recovery keys.
+						if ctx.Err() != nil && text == "" && phase == 3 {
+							return s.nv.Paste(text, crlf, phase)
+						}
+						return trackClipboardRequest(ctx, requests, func() (bool, error) {
+							return s.nv.Paste(text, crlf, phase)
+						})
+					})
 				} else {
-					err = s.nv.ExecLua(copySelection, nil, o.kind == opCut)
+					_, err = trackClipboardRequest(ctx, requests, func() (bool, error) {
+						return true, s.nv.ExecLua(copySelection, nil, o.kind == opCut)
+					})
 				}
 				late := ctx.Err() != nil
 				result <- err
@@ -368,12 +380,12 @@ func (s *Session) work() {
 					s.logf("clipboard request completed after deadline: %v", err)
 				}
 			}(o)
-			select {
-			case err = <-result:
-			case <-ctx.Done():
+			var timedOut bool
+			err, timedOut = waitClipboardRequests(requests, result)
+			if timedOut {
 				clipboardPending = result
 				cancel()
-				s.logf("%s request failed: %v; continuing queued input", method, ctx.Err())
+				s.logf("%s request failed: %v; continuing queued input; paste may be incomplete", method, err)
 				continue
 			}
 			cancel()

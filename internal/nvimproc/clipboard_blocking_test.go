@@ -243,3 +243,32 @@ func TestPasteDeadlineClosesStream(t *testing.T) {
 		})
 	}
 }
+
+func TestRealNvimPasteSlowRequestsRemainComplete(t *testing.T) {
+	s := startClipboard(t, `
+local original_paste = vim.paste
+vim.paste = function(lines, phase)
+  -- Model a slow plugin: every request replies well within two seconds,
+  -- while the complete 96-chunk paste necessarily takes longer than that.
+  vim.wait(30)
+  return original_paste(lines, phase)
+end
+`, nil)
+	text := strings.Repeat(strings.Repeat("x", 1023)+"\n", 6*1024)
+	started := time.Now()
+	s.Input("i")
+	s.Paste(text)
+	s.Input("<Esc>")
+	clipSync(t, s)
+	if elapsed := time.Since(started); elapsed <= clipboardRequestTimeout {
+		t.Fatalf("slow paste took %s, must exceed %s", elapsed, clipboardRequestTimeout)
+	}
+	if got := clipLines(t, s); got != text {
+		t.Fatalf("slow paste truncated: got %d bytes, want %d", len(got), len(text))
+	}
+	s.Input("u")
+	clipSync(t, s)
+	if got := clipLines(t, s); got != "" {
+		t.Fatalf("one undo left %d bytes", len(got))
+	}
+}
