@@ -14,9 +14,12 @@ import "strings"
 // an error. With several paths the argument list becomes all of them and the
 // first one is shown.
 //
-// Paths are escaped as Neovim's fnameescape() does, so that spaces, '%', '#',
-// '|' and the like reach :drop as part of a file name. Paths should be
-// absolute: a name starting with '~' would still be expanded by Neovim.
+// Paths are quoted by Escape so that spaces, '%', '#', '|' and the like reach
+// :drop as part of a file name. Paths should be absolute: a name starting with
+// '~' would still be expanded by Neovim. Existing paths may name files or
+// directories; :drop's wildcard expansion includes both. On Windows, paths
+// containing '[' must exist: if the quoted wildcard pattern matches nothing,
+// :drop may use that pattern as the new buffer name instead of the original path.
 func Command(goos string, paths []string) string {
 	var b strings.Builder
 	for _, p := range paths {
@@ -34,13 +37,18 @@ func Command(goos string, paths []string) string {
 
 // Characters that fnameescape() puts a backslash before. On Windows the
 // backslash is a path separator, and '$' is left alone, as Neovim does.
+// Windows defaults include '[', '{' and '!' in 'isfname', so they are not
+// escaped. These static sets do not follow user changes to 'isfname'.
+// Escape additionally quotes '[' on Windows to avoid :drop wildcard expansion.
 const (
 	escUnix    = " \t\n*?[{`$\\%#'\"|!<"
-	escWindows = " \t\n*?[{`%#'\"|!<"
+	escWindows = " \t\n*?`%#'\"|<"
 )
 
-// Escape is Neovim's fnameescape(): it escapes name for use as a file name
-// argument of an Ex command.
+// Escape quotes name for use as a file name argument of :drop, following
+// Neovim's fnameescape() except that '[' becomes '[[]' on Windows. This is an
+// intentional difference: :drop expands wildcards, and Windows treats a
+// backslash before '[' as a path separator rather than a wildcard escape.
 func Escape(goos, name string) string {
 	set := escUnix
 	if goos == "windows" {
@@ -50,6 +58,10 @@ func Escape(goos, name string) string {
 	b.Grow(len(name) + 2)
 	for i := 0; i < len(name); i++ {
 		c := name[i]
+		if goos == "windows" && c == '[' {
+			b.WriteString("[[]")
+			continue
+		}
 		// '+' and '>' at the start would be taken as a command option or
 		// as a redirect, and a lone '-' as "the previous directory".
 		lead := i == 0 && (c == '+' || c == '>' || (c == '-' && len(name) == 1))

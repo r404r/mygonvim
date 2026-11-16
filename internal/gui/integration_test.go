@@ -4,6 +4,7 @@ import (
 	"image/png"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/r404r/mygonvim/internal/grid"
 	"github.com/r404r/mygonvim/internal/nvimproc"
+	"github.com/r404r/mygonvim/internal/openfiles"
 )
 
 // The whole path against a real nvim --embed, with a headless MyGo window (the
@@ -41,7 +43,7 @@ func TestRealNvimEditAndSave(t *testing.T) {
 	})
 	sess, err := nvimproc.Start(nvimproc.Options{
 		Bin: bin, Cols: 80, Rows: 24,
-		Args:     []string{"--clean", "-c", "set termguicolors | colorscheme habamax | set number | syntax on", sample},
+		Args:     []string{"--clean", "-c", "set termguicolors fileformat=unix titlelen=0 | colorscheme habamax | set number | syntax on", sample},
 		Env:      nvimproc.PortableEnv(os.Environ(), filepath.Join(dir, "data")),
 		OnRedraw: func(u ...[]any) { ed.OnRedraw(u...) },
 		Logf:     t.Logf,
@@ -94,11 +96,21 @@ func TestRealNvimEditAndSave(t *testing.T) {
 	// method path (a composition, then its commit) and an emoji.
 	// Use the command line the way a user would.
 	tt.Key(0, ui.KeyEscape)
-	for _, ch := range ":e " + notes {
+	for _, ch := range ":e " + openfiles.Escape(runtime.GOOS, notes) {
 		typeKey(tt, ch)
 	}
 	tt.Key(0, ui.KeyEnter)
-	wait("notes.txt to open", func() bool { v, _ := title.Load().(string); return strings.Contains(v, "notes.txt") })
+	wait("notes.txt to open", func() bool {
+		var name string
+		return sess.Nvim().Eval("expand('%:t')", &name) == nil && name == "notes.txt"
+	})
+	wait("notes.txt in the window title", func() bool {
+		v, _ := title.Load().(string)
+		return strings.Contains(v, "notes.txt")
+	})
+	if err := sess.Nvim().Command("setlocal fileformat=unix"); err != nil {
+		t.Fatal(err)
+	}
 	typeKey(tt, 'i')
 	wait("insert mode", func() bool { var m string; read(func(s *grid.State) { m = s.Mode }); return m == "insert" })
 	tt.Frame()
@@ -138,7 +150,7 @@ func TestRealNvimEditAndSave(t *testing.T) {
 	})
 
 	// 5. Open sample.go again for the picture: syntax colors, number column, cursor.
-	for _, ch := range ":e " + sample {
+	for _, ch := range ":e " + openfiles.Escape(runtime.GOOS, sample) {
 		typeKey(tt, ch)
 	}
 	tt.Key(0, ui.KeyEnter)
@@ -187,6 +199,10 @@ func typeKey(tt *ui.Tester, ch rune) {
 			key, mods = ui.KeyComma, ui.Shift
 		case '/':
 			key = ui.KeySlash
+		case '\\':
+			key = ui.KeyBackslash
+		case '~':
+			key, mods = ui.KeyBackquote, ui.Shift
 		case '.':
 			key = ui.KeyPeriod
 		case '-':

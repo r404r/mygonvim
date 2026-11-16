@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -38,6 +39,8 @@ func TestCommand(t *testing.T) {
 		{"empty names are skipped", "linux", []string{"", "/a/b"}, `confirm drop /a/b`},
 		{"directory", "linux", []string{"/home/me/project/"}, `confirm drop /home/me/project/`},
 		{"chinese", "darwin", []string{"/Users/我/文档/说明 书.md"}, `confirm drop /Users/我/文档/说明\ 书.md`},
+		{"windows literal bang and brackets", "windows", []string{`C:\tmp\a!b[c{d.txt`}, `confirm drop C:\tmp\a!b[[]c{d.txt`},
+		{"windows bracket wildcard", "windows", []string{`C:\tmp\report[1].txt`}, `confirm drop C:\tmp\report[[]1].txt`},
 		{"windows keeps backslashes", "windows", []string{`C:\Users\me\a b.txt`}, `confirm drop C:\Users\me\a\ b.txt`},
 		{"windows specials", "windows", []string{`C:\tmp\50%#1|x$y.txt`}, `confirm drop C:\tmp\50\%\#1\|x$y.txt`},
 		{"windows chinese and forward slashes", "windows", []string{`D:/文档/说明.md`}, `confirm drop D:/文档/说明.md`},
@@ -88,8 +91,8 @@ func startNvim(t *testing.T) *nvim.Nvim {
 	return nv
 }
 
-// Escape must agree with the real fnameescape() on every character that
-// matters, so the rule above cannot drift from Neovim's.
+// Escape must agree with the real fnameescape() on every character except
+// the deliberate Windows '[' wildcard quoting used by :drop.
 func TestEscapeMatchesNvimFnameescape(t *testing.T) {
 	nv := startNvim(t)
 	var all strings.Builder
@@ -105,8 +108,19 @@ func TestEscapeMatchesNvimFnameescape(t *testing.T) {
 		if err := nv.Call("fnameescape", &want, n); err != nil {
 			t.Fatal(err)
 		}
-		if got := Escape("linux", n); got != want {
-			t.Errorf("Escape(%q) = %q, fnameescape() = %q", n, got, want)
+		if runtime.GOOS == "windows" {
+			if n == "[" {
+				if want != "[" {
+					t.Errorf("fnameescape(%q) = %q, want an unescaped bracket", n, want)
+				}
+				if got := Escape("windows", n); got != "[[]" {
+					t.Errorf("Escape(%q) = %q, want [[]", n, got)
+				}
+			}
+			want = strings.ReplaceAll(want, "[", "[[]")
+		}
+		if got := Escape(runtime.GOOS, n); got != want {
+			t.Errorf("Escape(%q) = %q, want %q", n, got, want)
 		}
 	}
 }
@@ -118,40 +132,114 @@ func TestCommandOpensFilesInNvim(t *testing.T) {
 	names := []string{
 		"plain.txt", "with space.txt", "percent%hash#.txt", "bar|name.txt", "quote'single.txt",
 		"dollar$x.txt", "angle<x.txt", "bang!.txt", "star*.txt", "文档 说明.md", "+plus.txt", ">gt.txt",
-		"brace{x}.txt", "back`tick.txt",
+		"brace{x}.txt", "bracket[x].txt", "back`tick.txt",
 	}
-	if os.PathSeparator == '/' {
-		names = append(names, `back\slash.txt`, "tab\there.txt")
-	}
+	names = append(names, `back\slash.txt`, "tab\there.txt")
 	sub := filepath.Join(root, "dir with space")
 	if err := os.Mkdir(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	for _, n := range names {
-		if err := os.WriteFile(filepath.Join(sub, n), []byte("x"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, n := range names {
 		t.Run(n, func(t *testing.T) {
+			if runtime.GOOS == "windows" && strings.ContainsAny(n, "<>|*\\\t") {
+				t.Skip("Windows file names cannot contain <, >, |, *, backslash or tab; escaping is covered by TestEscapeMatchesNvimFnameescape")
+			}
 			p := filepath.Join(sub, n)
-			if err := nv.Command(Command("linux", []string{p})); err != nil {
-				t.Fatalf("nvim rejected %q: %v", Command("linux", []string{p}), err)
+			if err := os.WriteFile(p, []byte("x"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if err := nv.Command(Command(runtime.GOOS, []string{p})); err != nil {
+				t.Fatalf("nvim rejected %q: %v", Command(runtime.GOOS, []string{p}), err)
 			}
 			var cur string
 			if err := nv.Call("expand", &cur, "%:p"); err != nil {
 				t.Fatal(err)
 			}
-			if cur != p {
+			if filepath.Clean(cur) != filepath.Clean(p) {
 				t.Errorf("current buffer is %q, want %q", cur, p)
 			}
 		})
 	}
 }
 
+func TestCommandOpensLiteralBracketFile(t *testing.T) {
+	nv := startNvim(t)
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(root, "report[1].txt")
+	for _, path := range []string{want, filepath.Join(root, "report1.txt")} {
+		if err := os.WriteFile(path, []byte(filepath.Base(path)), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := nv.Command(Command(runtime.GOOS, []string{want})); err != nil {
+		t.Fatal(err)
+	}
+	var cur string
+	if err := nv.Call("expand", &cur, "%:p"); err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(cur) != want {
+		t.Errorf("current buffer is %q, want %q", cur, want)
+	}
+	var args []string
+	if err := nv.Call("argv", &args); err != nil {
+		t.Fatal(err)
+	}
+	for i := range args {
+		args[i] = filepath.Clean(args[i])
+	}
+	if !reflect.DeepEqual(args, []string{want}) {
+		t.Errorf("argument list is %q, want only %q", args, want)
+	}
+}
+
+func TestCommandOpensLiteralBracketDirectory(t *testing.T) {
+	nv := startNvim(t)
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := filepath.Join(root, "dir[1]")
+	if err := os.Mkdir(want, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "dir1"), []byte("a file, not the requested directory"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := nv.Command(Command(runtime.GOOS, []string{want})); err != nil {
+		t.Fatal(err)
+	}
+	var shown string
+	if err := nv.Eval(`get(b:, "netrw_curdir", "")`, &shown); err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(shown) != want {
+		t.Errorf("directory shown is %q, want %q", shown, want)
+	}
+	var args []string
+	if err := nv.Call("argv", &args); err != nil {
+		t.Fatal(err)
+	}
+	for i := range args {
+		args[i] = filepath.Clean(args[i])
+	}
+	if !reflect.DeepEqual(args, []string{want}) {
+		t.Errorf("argument list is %q, want only %q", args, want)
+	}
+}
+
 func TestCommandSeveralFilesAndDirectory(t *testing.T) {
 	nv := startNvim(t)
 	root := t.TempDir()
+	// netrw reports the physical path; macOS's temporary directory uses /var
+	// as a symlink to /private/var.
+	root, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		t.Fatal(err)
+	}
 	var files []string
 	for _, n := range []string{"a one.txt", "b#two.txt", "c.txt"} {
 		p := filepath.Join(root, n)
@@ -160,19 +248,22 @@ func TestCommandSeveralFilesAndDirectory(t *testing.T) {
 		}
 		files = append(files, p)
 	}
-	if err := nv.Command(Command("linux", files)); err != nil {
+	if err := nv.Command(Command(runtime.GOOS, files)); err != nil {
 		t.Fatal(err)
 	}
 	var cur string
 	if err := nv.Call("expand", &cur, "%:p"); err != nil {
 		t.Fatal(err)
 	}
-	if cur != files[0] {
+	if filepath.Clean(cur) != filepath.Clean(files[0]) {
 		t.Errorf("shown file is %q, want the first, %q", cur, files[0])
 	}
 	var args []string
 	if err := nv.Call("argv", &args); err != nil {
 		t.Fatal(err)
+	}
+	for i := range args {
+		args[i] = filepath.Clean(args[i])
 	}
 	if !reflect.DeepEqual(args, files) {
 		t.Errorf("argument list is %q, want %q", args, files)
@@ -184,14 +275,14 @@ func TestCommandSeveralFilesAndDirectory(t *testing.T) {
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := nv.Command(Command("linux", []string{dir})); err != nil {
+	if err := nv.Command(Command(runtime.GOOS, []string{dir})); err != nil {
 		t.Fatal(err)
 	}
 	var shown string
 	if err := nv.Eval(`get(b:, "netrw_curdir", "")`, &shown); err != nil {
 		t.Fatal(err)
 	}
-	if shown != dir {
+	if filepath.Clean(shown) != filepath.Clean(dir) {
 		t.Errorf("after opening a directory the explorer shows %q, want %q", shown, dir)
 	}
 }

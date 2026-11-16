@@ -63,7 +63,7 @@ usage: mygonvim [flags] [file ...]
 
 Where nvim is looked for: `-nvim`, `$MYGONVIM_NVIM`, `nvim/bin/nvim[.exe]` or `nvim/nvim[.exe]` next to the program (and in the app's resources folder), `PATH`, then `/opt/homebrew/bin` and `/usr/local/bin` on macOS.
 
-Dropping files from Finder or Explorer on the window opens them: MyGoNVim runs `:confirm drop {files}` with the names escaped as `fnameescape()` does. The first file is shown (or its window is focused if it is already open), and with several files they all go to the argument list. Neovim asks on its command line when the current buffer has unsaved changes. The command is tested against a real Neovim; the drop gesture itself has not been tried on a real macOS or Windows machine. Dropping on the Dock icon, and "Open With", are not handled yet.
+Dropping files from Finder or Explorer on the window opens them: MyGoNVim runs `:confirm drop {files}` with the names quoted for Neovim, including literal `[` characters in existing Windows paths. A dropped directory opens in Neovim's file explorer. The first file is shown (or its window is focused if it is already open), and with several files they all go to the argument list. Neovim asks on its command line when the current buffer has unsaved changes. The command is tested against a real Neovim; the drop gesture itself has not been tried on a real macOS or Windows machine. Dropping on the Dock icon, and "Open With", are not handled yet.
 
 **File > Open...** shows the system file dialog (several files can be chosen) and opens the choice the same way as a drop. On macOS the shortcut is Cmd+O, and the app, Edit and Window menus and File > Close stay. On Windows the menu bar has File with Open... and Exit and no shortcuts, so Ctrl+O (jump list), Ctrl+W and Ctrl+Q stay with Neovim; Linux gets the same menu. Both have a Font menu (see Fonts). Cancelling the dialog does nothing. The menu has not been tried on a real macOS or Windows machine.
 
@@ -119,6 +119,22 @@ NVIM_BIN=/path/to/nvim go test ./...              # also runs the tests against 
 MYGONVIM_SCREENSHOT=shot.png NVIM_BIN=... go test -run RealNvim ./internal/gui
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build .
 ```
+
+CI runs `go vet ./...` and all package tests on Linux, macOS and Windows,
+including headless MyGo views and real `nvim --embed` sessions. All three
+runners download the official Neovim release pinned by `NVIM_VERSION` in
+`.github/workflows/ci.yml`. Linux also uses `-race`; macOS and Windows run
+without it. The four cross-build targets continue to use `CGO_ENABLED=0`.
+
+CI sets `NVIM_BIN` to the downloaded executable's absolute path: a missing
+or broken executable fails the real Neovim tests instead of skipping them.
+Locally, those tests skip when neither `NVIM_BIN` nor Neovim on `PATH` is
+available. Test events, including individual passes and skips with reasons,
+are in the job logs and the `test-results-*` artifacts (`go test -json`).
+Windows skips only file-opening cases with names its filesystem forbids;
+the escaping comparison against Neovim still covers those characters.
+These CI checks do not verify native menus, real input methods, gestures,
+or packaged applications on a physical Windows or macOS machine.
 
 Layout: `internal/grid` (screen model from `redraw` events), `internal/input` (keys and IME to `nvim_input` notation; scroll events to wheel steps), `internal/nvimproc` (find, start and talk to nvim), `internal/appmenu` (the menu bar), `internal/openfiles` (paths to the Ex command that opens them), `internal/fontcfg` (which font wins; `guifont` parsing), `internal/gui` (the MyGo view that draws the grid). MyGo is pinned in `go.mod` to the release v0.9.0.
 

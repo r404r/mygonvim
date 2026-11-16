@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -47,9 +48,13 @@ func TestRealNvimOpensDroppedFiles(t *testing.T) {
 	}
 	dir := t.TempDir()
 	first := filepath.Join(dir, "first one #1.txt")
-	second := filepath.Join(dir, "100%|second.txt")
-	os.WriteFile(first, []byte("content of the first file\n"), 0o644)
-	os.WriteFile(second, []byte("content of the second file\n"), 0o644)
+	second := filepath.Join(dir, "100%'second.txt")
+	if err := os.WriteFile(first, []byte("content of the first file\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("content of the second file\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	var ed *Editor
 	ed = NewEditor(nil, Config{FontFamily: "monospace", FontSize: 14, Cols: 80, Rows: 24}, Hooks{})
@@ -92,6 +97,15 @@ func TestRealNvimOpensDroppedFiles(t *testing.T) {
 
 	ed.OpenFiles([]string{second})
 	wait("the second file", "content of the second file")
+
+	if runtime.GOOS != "windows" {
+		third := filepath.Join(dir, "pipe|third.txt")
+		if err := os.WriteFile(third, []byte("content of the pipe file\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ed.OpenFiles([]string{third})
+		wait("the file with a pipe in its name", "content of the pipe file")
+	}
 }
 
 // The File > Open... path end to end, with the dialog stubbed: chosen files
