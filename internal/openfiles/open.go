@@ -34,9 +34,11 @@ func Command(goos string, paths []string) string {
 
 // Characters that fnameescape() puts a backslash before. On Windows the
 // backslash is a path separator, and '$' is left alone, as Neovim does.
+// Windows defaults include '[', '{' and '!' in 'isfname', so they are not
+// escaped. These static sets do not follow user changes to 'isfname'.
 const (
 	escUnix    = " \t\n*?[{`$\\%#'\"|!<"
-	escWindows = " \t\n*?[{`%#'\"|!<"
+	escWindows = " \t\n*?`%#'\"|<"
 )
 
 // Escape is Neovim's fnameescape(): it escapes name for use as a file name

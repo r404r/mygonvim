@@ -39,6 +39,7 @@ func TestCommand(t *testing.T) {
 		{"empty names are skipped", "linux", []string{"", "/a/b"}, `confirm drop /a/b`},
 		{"directory", "linux", []string{"/home/me/project/"}, `confirm drop /home/me/project/`},
 		{"chinese", "darwin", []string{"/Users/我/文档/说明 书.md"}, `confirm drop /Users/我/文档/说明\ 书.md`},
+		{"windows literal bang and brackets", "windows", []string{`C:\tmp\a!b[c{d.txt`}, `confirm drop C:\tmp\a!b[c{d.txt`},
 		{"windows keeps backslashes", "windows", []string{`C:\Users\me\a b.txt`}, `confirm drop C:\Users\me\a\ b.txt`},
 		{"windows specials", "windows", []string{`C:\tmp\50%#1|x$y.txt`}, `confirm drop C:\tmp\50\%\#1\|x$y.txt`},
 		{"windows chinese and forward slashes", "windows", []string{`D:/文档/说明.md`}, `confirm drop D:/文档/说明.md`},
@@ -119,7 +120,7 @@ func TestCommandOpensFilesInNvim(t *testing.T) {
 	names := []string{
 		"plain.txt", "with space.txt", "percent%hash#.txt", "bar|name.txt", "quote'single.txt",
 		"dollar$x.txt", "angle<x.txt", "bang!.txt", "star*.txt", "文档 说明.md", "+plus.txt", ">gt.txt",
-		"brace{x}.txt", "back`tick.txt",
+		"brace{x}.txt", "bracket[x].txt", "back`tick.txt",
 	}
 	names = append(names, `back\slash.txt`, "tab\there.txt")
 	sub := filepath.Join(root, "dir with space")
