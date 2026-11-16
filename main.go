@@ -10,6 +10,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -43,12 +44,17 @@ func main() {
 	}
 	mygo.App.SetVersion(displayedVersion())
 	var sess *nvimproc.Session
-	mygo.App.WhenReady(func() { sess = start(opts) })
+	var logs io.Closer
+	mygo.App.WhenReady(func() { sess, logs = start(opts) })
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
 	}
 	if sess != nil {
 		sess.Close()
+	}
+	if logs != nil {
+		log.SetOutput(os.Stderr)
+		logs.Close()
 	}
 }
 
@@ -81,7 +87,7 @@ func (l *lateBackend) Command(c string) {
 
 // start finds nvim, runs it, and opens the window. It runs on the main thread
 // once the app is ready.
-func start(opts options) *nvimproc.Session {
+func start(opts options) (*nvimproc.Session, io.Closer) {
 	exe, _ := os.Executable()
 	exeDir := filepath.Dir(exe)
 	dirs := []string{exeDir}
@@ -89,23 +95,23 @@ func start(opts options) *nvimproc.Session {
 		dirs = append(dirs, res)
 	}
 
-	bin, err := nvimproc.Locate(opts.nvim, os.Getenv("MYGONVIM_NVIM"), dirs)
-	if err != nil {
-		return fail(err)
-	}
-
 	// Portable mode: a data/ folder next to the program keeps Neovim's config,
 	// data, state and cache, and the app's own, beside it.
 	env := os.Environ()
 	if data, ok := nvimproc.PortableDir(exeDir); ok {
 		if err := nvimproc.EnsurePortableDirs(data); err != nil {
-			return fail(err)
+			return fail(err), nil
 		}
 		env = nvimproc.PortableEnv(env, data)
 		app := filepath.Join(data, "mygonvim")
 		mygo.App.SetPath(mygo.PathUserData, app)
 		mygo.App.SetPath(mygo.PathCache, filepath.Join(data, "cache", "mygonvim"))
 		mygo.App.SetPath(mygo.PathLogs, filepath.Join(app, "logs"))
+	}
+	logs := startLogging(os.Stderr)
+	bin, err := nvimproc.Locate(opts.nvim, os.Getenv("MYGONVIM_NVIM"), dirs)
+	if err != nil {
+		return fail(err), logs
 	}
 
 	// The font chosen in the menu last time, in settings.json of the user data
@@ -156,18 +162,13 @@ func start(opts options) *nvimproc.Session {
 	sess, err := nvimproc.Start(nvimproc.Options{
 		Bin: bin, Args: opts.files, Env: env, Cols: cfg.Cols, Rows: cfg.Rows,
 		InitCmds: initCmds(saved),
+		Version:  displayedVersion(),
 		OnRedraw: ed.OnRedraw,
-		OnExit: func(err error) {
-			quitting.Store(true)
-			if err != nil {
-				log.Printf("nvim exited: %v", err)
-			}
-			mygo.App.Quit()
-		},
-		Logf: log.Printf,
+		OnExit:   exitHandler(&quitting, mygo.App.Quit, log.Printf),
+		Logf:     log.Printf,
 	})
 	if err != nil {
-		return fail(err)
+		return fail(err), logs
 	}
 	late.be.Store(sess)
 	// Neovim 0.12 gives 'guifont' a default font list. It is not the user's
@@ -190,13 +191,7 @@ func start(opts options) *nvimproc.Session {
 	})
 	// Closing the window asks Neovim to quit, which may ask about unsaved
 	// changes on its command line; the window closes when nvim has exited.
-	w.OnClose(func(e *mygo.CloseEvent) {
-		if quitting.Load() {
-			return
-		}
-		e.PreventDefault()
-		sess.Command("confirm qa")
-	})
+	w.OnClose(closeHandler(&quitting, sess.Command))
 	cur := ed.Font()
 	fontMenu = &appmenu.FontMenu{
 		Families: appmenu.MonospacedFamilies(ui.FontFamilies()), Sizes: appmenu.DefaultSizes,
@@ -224,7 +219,7 @@ func start(opts options) *nvimproc.Session {
 		w.SetTitle(title)
 	}
 	w.Invalidate()
-	return sess
+	return sess, logs
 }
 
 // initCmds presets Neovim's 'guifont' with the font saved from the menu, ahead
