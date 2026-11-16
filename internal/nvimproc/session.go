@@ -26,6 +26,8 @@ type Options struct {
 	// InitCmds are Ex commands run before the user's init file (nvim --cmd), in
 	// order: what the app presets, for the user's own settings to override.
 	InitCmds []string
+	// Version is the GUI build version, reported in nvim_set_client_info.
+	Version string
 	// Cols and Rows are the grid the UI attaches with.
 	Cols, Rows int
 	// OnRedraw gets each "redraw" notification's updates, on the client's
@@ -58,9 +60,11 @@ type Session struct {
 	queue  []op
 	closed bool
 
-	stderr *tailBuffer
-	done   chan struct{} // closed when the process has exited
-	logf   func(string, ...any)
+	stderr     *tailBuffer
+	done       chan struct{} // closed when the process has exited
+	logf       func(string, ...any)
+	callMu     sync.Mutex
+	recentCall string
 }
 
 type opKind uint8
@@ -132,9 +136,15 @@ func Start(o Options) (*Session, error) {
 	}
 	s := &Session{nv: nv, cmd: cmd, stderr: stderr, done: make(chan struct{}), logf: logf}
 	s.cond = sync.NewCond(&s.mu)
+	if err := s.registerErrors(nv.RegisterHandler); err != nil {
+		s.kill()
+		cmd.Wait()
+		return nil, err
+	}
 	if o.OnRedraw != nil {
 		if err := nv.RegisterHandler("redraw", o.OnRedraw); err != nil {
 			s.kill()
+			cmd.Wait()
 			return nil, err
 		}
 	}
@@ -164,8 +174,12 @@ func Start(o Options) (*Session, error) {
 			o.OnExit(err)
 		}
 	}()
+	if err := s.identify(o.Version); err != nil {
+		s.Close()
+		return nil, fmt.Errorf("nvim_set_client_info: %w", err)
+	}
 	if err := nv.AttachUI(o.Cols, o.Rows, UIOptions()); err != nil {
-		s.kill()
+		s.Close()
 		return nil, fmt.Errorf("nvim_ui_attach: %w (nvim said: %q)", err, s.stderr.String())
 	}
 	go s.work()
@@ -252,26 +266,34 @@ func (s *Session) work() {
 		s.queue = s.queue[1:]
 		s.mu.Unlock()
 		var err error
+		method := ""
 		switch o.kind {
 		case opInput:
+			method = "nvim_input"
+			s.calling(method)
 			err = s.sendInput(o.s)
 		case opCommand:
 			// Not waited for: a command may wait for the user (":confirm
 			// qa" asks a question), and the keys that answer it are queued
 			// behind this one.
 			go func(cmd string) {
+				s.calling("nvim_command")
 				if err := s.nv.Command(cmd); err != nil && !s.exitedSoon() {
-					s.logf("nvim command %q failed: %v", cmd, err)
+					s.logf("nvim_command request failed: %v", err)
 				}
 			}(o.s)
 		case opResize:
+			method = "nvim_ui_try_resize"
+			s.calling(method)
 			err = s.nv.TryResizeUI(o.cols, o.rows)
 		case opMouse:
+			method = "nvim_input_mouse"
+			s.calling(method)
 			m := o.mouse
 			err = s.nv.InputMouse(m.button, m.action, m.modifier, 0, m.row, m.col)
 		}
 		if err != nil && !s.exitedSoon() {
-			s.logf("nvim call failed: %v", err)
+			s.logf("%s request failed: %v", method, err)
 		}
 	}
 }
