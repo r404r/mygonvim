@@ -39,7 +39,8 @@ func TestCommand(t *testing.T) {
 		{"empty names are skipped", "linux", []string{"", "/a/b"}, `confirm drop /a/b`},
 		{"directory", "linux", []string{"/home/me/project/"}, `confirm drop /home/me/project/`},
 		{"chinese", "darwin", []string{"/Users/我/文档/说明 书.md"}, `confirm drop /Users/我/文档/说明\ 书.md`},
-		{"windows literal bang and brackets", "windows", []string{`C:\tmp\a!b[c{d.txt`}, `confirm drop C:\tmp\a!b[c{d.txt`},
+		{"windows literal bang and brackets", "windows", []string{`C:\tmp\a!b[c{d.txt`}, `confirm drop C:\tmp\a!b[[]c{d.txt`},
+		{"windows bracket wildcard", "windows", []string{`C:\tmp\report[1].txt`}, `confirm drop C:\tmp\report[[]1].txt`},
 		{"windows keeps backslashes", "windows", []string{`C:\Users\me\a b.txt`}, `confirm drop C:\Users\me\a\ b.txt`},
 		{"windows specials", "windows", []string{`C:\tmp\50%#1|x$y.txt`}, `confirm drop C:\tmp\50\%\#1\|x$y.txt`},
 		{"windows chinese and forward slashes", "windows", []string{`D:/文档/说明.md`}, `confirm drop D:/文档/说明.md`},
@@ -90,8 +91,8 @@ func startNvim(t *testing.T) *nvim.Nvim {
 	return nv
 }
 
-// Escape must agree with the real fnameescape() on every character that
-// matters, so the rule above cannot drift from Neovim's.
+// Escape must agree with the real fnameescape() on every character except
+// the deliberate Windows '[' wildcard quoting used by :drop.
 func TestEscapeMatchesNvimFnameescape(t *testing.T) {
 	nv := startNvim(t)
 	var all strings.Builder
@@ -107,8 +108,19 @@ func TestEscapeMatchesNvimFnameescape(t *testing.T) {
 		if err := nv.Call("fnameescape", &want, n); err != nil {
 			t.Fatal(err)
 		}
+		if runtime.GOOS == "windows" {
+			if n == "[" {
+				if want != "[" {
+					t.Errorf("fnameescape(%q) = %q, want an unescaped bracket", n, want)
+				}
+				if got := Escape("windows", n); got != "[[]" {
+					t.Errorf("Escape(%q) = %q, want [[]", n, got)
+				}
+			}
+			want = strings.ReplaceAll(want, "[", "[[]")
+		}
 		if got := Escape(runtime.GOOS, n); got != want {
-			t.Errorf("Escape(%q) = %q, fnameescape() = %q", n, got, want)
+			t.Errorf("Escape(%q) = %q, want %q", n, got, want)
 		}
 	}
 }
