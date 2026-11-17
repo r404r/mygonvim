@@ -5,6 +5,12 @@
 <h1 align="center">MyGoNVim</h1>
 
 <p align="center">
+  English &middot;
+  <a href="README.ja.md">日本語</a> &middot;
+  <a href="README.zh-CN.md">中文</a>
+</p>
+
+<p align="center">
   A Neovim GUI for macOS and Windows, built with MyGo's native UI.
 </p>
 
