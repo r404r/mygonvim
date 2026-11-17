@@ -266,6 +266,9 @@ end
 	if got := clipLines(t, s); got != text {
 		t.Fatalf("slow paste truncated: got %d bytes, want %d", len(got), len(text))
 	}
+	if messages := clipboardMessages(t, s); strings.Contains(messages, "MyGoNVim:") {
+		t.Fatalf("slow but responsive paste warned: %q", messages)
+	}
 	s.Input("u")
 	clipSync(t, s)
 	if got := clipLines(t, s); got != "" {

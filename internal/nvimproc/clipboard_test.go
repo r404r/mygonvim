@@ -435,6 +435,8 @@ func TestClipboardProviderFailureAndOutstandingLimit(t *testing.T) {
 		defer mu.Unlock()
 		logs = append(logs, fmt.Sprintf(format, args...))
 	})
+	var warnings []string
+	c.warn = func(message string) { warnings = append(warnings, message) }
 	c.Read = func(context.Context) (string, error) { return "", errors.New("read failed") }
 	c.Write = func(context.Context, string) error { return errors.New("write failed") }
 	got, err := c.get("+")
@@ -444,6 +446,9 @@ func TestClipboardProviderFailureAndOutstandingLimit(t *testing.T) {
 	c.set([]string{"text"}, "v", "+")
 	if len(logs) != 2 || !strings.Contains(logs[0], "read failed") || !strings.Contains(logs[1], "write failed") {
 		t.Fatalf("logs=%q", logs)
+	}
+	if len(warnings) != 2 || !strings.Contains(warnings[0], "clipboard read failed: read failed") || !strings.Contains(warnings[1], "clipboard write failed: write failed") {
+		t.Fatalf("warnings=%q", warnings)
 	}
 	started, release, returned := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	t.Cleanup(func() { close(release); <-returned })
@@ -457,6 +462,9 @@ func TestClipboardProviderFailureAndOutstandingLimit(t *testing.T) {
 	got, err = c.get("+")
 	if err != nil || !reflect.DeepEqual(got, []any{[]string{""}, "v"}) {
 		t.Fatal("pending native operation was not bounded")
+	}
+	if len(warnings) != 4 || !strings.Contains(warnings[2], "deadline exceeded") || !strings.Contains(warnings[3], "still pending") {
+		t.Fatalf("warnings=%q", warnings)
 	}
 	if !strings.Contains(strings.Join(logs, "\n"), "still pending") {
 		t.Fatalf("missing busy diagnostic: %q", logs)

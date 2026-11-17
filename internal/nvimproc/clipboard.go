@@ -3,6 +3,7 @@ package nvimproc
 import (
 	"context"
 	"errors"
+	"fmt"
 	"runtime"
 	"strings"
 	"time"
@@ -20,6 +21,7 @@ type clipboardProvider struct {
 	busy    chan struct{}
 	timeout time.Duration
 	logf    func(string, ...any)
+	warn    func(string)
 }
 
 func newClipboardProvider(c Clipboard, logf func(string, ...any)) *clipboardProvider {
@@ -64,7 +66,7 @@ func (c *clipboardProvider) call(fn func(context.Context) (string, error)) (stri
 func (c *clipboardProvider) get(register string) ([]any, error) {
 	text, err := c.call(func(ctx context.Context) (string, error) { return c.Read(ctx) })
 	if err != nil {
-		c.logf("clipboard read: %v", err)
+		c.failed("read", err)
 		return []any{[]string{""}, "v"}, nil
 	}
 	text = strings.ReplaceAll(strings.ReplaceAll(text, "\r\n", "\n"), "\r", "\n")
@@ -85,9 +87,17 @@ func (c *clipboardProvider) set(lines []string, regtype, register string) (int, 
 	}
 	_, err := c.call(func(ctx context.Context) (string, error) { return "", c.Write(ctx, text) })
 	if err != nil {
-		c.logf("clipboard write: %v", err)
+		c.failed("write", err)
 	}
 	return 0, nil
+}
+
+func (c *clipboardProvider) failed(operation string, err error) {
+	message := fmt.Sprintf("clipboard %s failed: %v", operation, err)
+	c.logf("%s", message)
+	if c.warn != nil {
+		c.warn(message)
+	}
 }
 
 const clipboardSetup = `

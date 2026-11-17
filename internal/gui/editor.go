@@ -55,9 +55,8 @@ type Hooks struct {
 	// SaveFont stores the font chosen in the menu, to start with next time. A
 	// failure is the hook's to report.
 	SaveFont func(fontcfg.Choice)
-	// ReadClipboard reads plain text on the main thread. Empty/unavailable
-	// text is a no-op; native errors are reported by this hook.
-	ReadClipboard func() string
+	// PasteClipboard queues a native read and paste without blocking the UI.
+	PasteClipboard func()
 }
 
 // Editor is the view of one Neovim. Create it with NewEditor, give View to the
@@ -187,11 +186,15 @@ func (e *Editor) handle(ev ui.InputEvent) bool {
 func (e *Editor) EditCommand(command string) bool {
 	switch command {
 	case "paste":
-		if e.hooks.ReadClipboard != nil {
-			if text := e.hooks.ReadClipboard(); text != "" {
-				e.be.Paste(text)
-			}
+		if e.hooks.PasteClipboard != nil {
+			e.hooks.PasteClipboard()
 		}
+	case "undo":
+		e.be.Input("<Cmd>undo<CR>")
+	case "redo":
+		e.be.Input("<Cmd>redo<CR>")
+	case "selectAll":
+		e.be.Input("<C-\\><C-n>ggVG")
 	case "copy":
 		e.be.Copy()
 	case "cut":
