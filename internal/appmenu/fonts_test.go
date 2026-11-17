@@ -86,7 +86,7 @@ func TestFontMenuPlacesAndChecksItems(t *testing.T) {
 					tops = append(tops, it.Label)
 				}
 			}
-			want := []string{"File", "Font"}
+			want := []string{"File", "Edit", "Font"}
 			if goos == "darwin" {
 				want = []string{"appMenu", "File", "editMenu", "Font", "windowMenu"}
 			}
@@ -113,7 +113,7 @@ func TestFontMenuPlacesAndChecksItems(t *testing.T) {
 				}
 			}
 			walk(bar, func(it *mygo.MenuItem) {
-				if goos != "darwin" && it.Accelerator != "" {
+				if goos != "darwin" && it.Accelerator != "" && it.ID != IDCopy && it.ID != IDPaste {
 					t.Errorf("item %q has shortcut %q", it.Label, it.Accelerator)
 				}
 			})
@@ -133,12 +133,12 @@ func TestNoFontMenuWithoutFontActions(t *testing.T) {
 
 func TestFontMenuWithoutFamiliesOrSizes(t *testing.T) {
 	bar := Template("windows", Actions{Font: &FontMenu{Sizes: []float32{14}}})
-	if len(bar) != 2 || len(bar[1].Submenu) != 1 || bar[1].Submenu[0].Label != "Size" {
-		t.Errorf("without monospaced families the Font menu should have only Size: %+v", bar[1].Submenu)
+	if len(bar) != 3 || len(bar[2].Submenu) != 1 || bar[2].Submenu[0].Label != "Size" {
+		t.Errorf("without monospaced families the Font menu should have only Size: %+v", bar[2].Submenu)
 	}
 	bar = Template("windows", Actions{Font: &FontMenu{Families: []string{"Menlo"}}})
-	if len(bar[1].Submenu) != 1 || bar[1].Submenu[0].Label != "Family" {
-		t.Errorf("without sizes the Font menu should have only Family: %+v", bar[1].Submenu)
+	if len(bar[2].Submenu) != 1 || bar[2].Submenu[0].Label != "Family" {
+		t.Errorf("without sizes the Font menu should have only Family: %+v", bar[2].Submenu)
 	}
 }
 

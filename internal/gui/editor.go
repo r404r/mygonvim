@@ -23,6 +23,9 @@ type Backend interface {
 	Command(cmd string)
 	// Mouse is nvim_input_mouse: see nvimproc.Session.Mouse.
 	Mouse(button, action, modifier string, row, col int)
+	Paste(text string)
+	Copy()
+	Cut()
 }
 
 // Config is the editor's look.
@@ -52,6 +55,9 @@ type Hooks struct {
 	// SaveFont stores the font chosen in the menu, to start with next time. A
 	// failure is the hook's to report.
 	SaveFont func(fontcfg.Choice)
+	// ReadClipboard reads plain text on the main thread. Empty/unavailable
+	// text is a no-op; native errors are reported by this hook.
+	ReadClipboard func() string
 }
 
 // Editor is the view of one Neovim. Create it with NewEditor, give View to the
@@ -161,6 +167,9 @@ func (e *Editor) View(c *ui.Context) {
 
 // handle is the box's HandleInput.
 func (e *Editor) handle(ev ui.InputEvent) bool {
+	if ev.Kind == ui.InputCommand {
+		return e.EditCommand(ev.Text)
+	}
 	if ev.Kind == ui.InputPointerDown || ev.Kind == ui.InputPointerMove || ev.Kind == ui.InputPointerUp {
 		return e.point(ev)
 	}
@@ -172,6 +181,25 @@ func (e *Editor) handle(ev ui.InputEvent) bool {
 		e.be.Input(keys)
 	}
 	return taken
+}
+
+// EditCommand handles native Edit menu commands on the main thread.
+func (e *Editor) EditCommand(command string) bool {
+	switch command {
+	case "paste":
+		if e.hooks.ReadClipboard != nil {
+			if text := e.hooks.ReadClipboard(); text != "" {
+				e.be.Paste(text)
+			}
+		}
+	case "copy":
+		e.be.Copy()
+	case "cut":
+		e.be.Cut()
+	default:
+		return false
+	}
+	return true
 }
 
 // point shares the wheel's clamped cell mapping and mouse_off state. Pointer

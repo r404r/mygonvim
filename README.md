@@ -16,6 +16,7 @@
   <a href="#prebuilt-builds">Prebuilt builds</a> &middot;
   <a href="#run">Run</a> &middot;
   <a href="#mouse">Mouse</a> &middot;
+  <a href="#clipboard">Clipboard</a> &middot;
   <a href="#fonts">Fonts</a> &middot;
   <a href="#portable-mode">Portable mode</a> &middot;
   <a href="#develop">Develop</a>
@@ -25,7 +26,7 @@ A [Neovim](https://neovim.io) GUI drawn with [MyGo](https://github.com/egoist/my
 
 It runs `nvim --embed`, keeps Neovim's cell grid in memory, and draws it cell by cell with MyGo's `ui.Shape` and `Painter.Glyphs`.
 
-**Status: MVP step 1 (partial), version 0.0.3.** Linux has been verified (unit and integration tests, a real window, and CI): it opens files, edits and saves; syntax colors, CJK and emoji, cursor shapes per mode, window title, window resize, Ctrl/Alt/special keys. Input-method composition is drawn at the cursor in headless tests; real IME on macOS and Windows is untested. macOS and Windows compile, pass CI unit tests, and have unsigned preview builds, but have not been run on a real machine, so MVP 1 is not done. The mouse wheel and touchpad scroll the window under the pointer (tested against a real Neovim in a headless window, not yet on a real Mac or Windows machine). Mouse clicks and dragging are also tested against real Neovim in a headless window; they have not been tried on real macOS or Windows hardware. Not yet: clipboard shortcuts, high-DPI polish, command-line/popup-menu/tab-line/multigrid UI, a bundled Neovim, or signed/notarized packages. Design notes are maintained separately.
+**Status: MVP step 1 (partial), version 0.0.3.** Linux has been verified (unit and integration tests, a real window, and CI): it opens files, edits and saves; syntax colors, CJK and emoji, cursor shapes per mode, window title, window resize, Ctrl/Alt/special keys. Input-method composition is drawn at the cursor in headless tests; real IME on macOS and Windows is untested. macOS and Windows compile, pass CI unit tests, and have unsigned preview builds, but have not been run on a real machine, so MVP 1 is not done. The mouse wheel and touchpad scroll the window under the pointer (tested against a real Neovim in a headless window, not yet on a real Mac or Windows machine). Mouse clicks and dragging are also tested against real Neovim in a headless window; they have not been tried on real macOS or Windows hardware. Clipboard pasting and register callbacks are tested against real Neovim with a substitute clipboard; native clipboard exchange and menu shortcuts still need real macOS and Windows testing. Not yet: high-DPI polish, command-line/popup-menu/tab-line/multigrid UI, a bundled Neovim, or signed/notarized packages. Design notes are maintained separately.
 
 ## Prebuilt builds
 
@@ -65,7 +66,7 @@ Where nvim is looked for: `-nvim`, `$MYGONVIM_NVIM`, `nvim/bin/nvim[.exe]` or `n
 
 Dropping files from Finder or Explorer on the window opens them: MyGoNVim runs `:confirm drop {files}` with the names quoted for Neovim, including literal `[` characters in existing Windows paths. A dropped directory opens in Neovim's file explorer. The first file is shown (or its window is focused if it is already open), and with several files they all go to the argument list. Neovim asks on its command line when the current buffer has unsaved changes. The command is tested against a real Neovim; the drop gesture itself has not been tried on a real macOS or Windows machine. Dropping on the Dock icon, and "Open With", are not handled yet.
 
-**File > Open...** shows the system file dialog (several files can be chosen) and opens the choice the same way as a drop. On macOS the shortcut is Cmd+O, and the app, Edit and Window menus and File > Close stay. On Windows the menu bar has File with Open... and Exit and no shortcuts, so Ctrl+O (jump list), Ctrl+W and Ctrl+Q stay with Neovim; Linux gets the same menu. Both have a Font menu (see Fonts). Cancelling the dialog does nothing. The menu has not been tried on a real macOS or Windows machine.
+**File > Open...** shows the system file dialog (several files can be chosen) and opens the choice the same way as a drop. On macOS the shortcut is Cmd+O, and the app, Edit and Window menus and File > Close stay. On Windows the File menu has Open... and Exit without shortcuts, so Ctrl+O (jump list), Ctrl+W and Ctrl+Q stay with Neovim; Linux gets the same menu. Both have a Font menu (see Fonts). Cancelling the dialog does nothing. The menu has not been tried on a real macOS or Windows machine.
 
 Closing the window runs `:confirm qa`: Neovim asks about unsaved changes on its own command line, and the window closes when Neovim has quit.
 
@@ -89,6 +90,20 @@ Scroll events go to Neovim as `nvim_input_mouse` wheel steps at the cell under t
 - While Neovim says its `mouse` option is off for the current mode (`mouse_off`), as with `set mouse=` or on the command line with the default `mouse=nvi`, scrolling is ignored.
 
 Headless tests with real Neovim cover clicks, selection, split switching, double/triple clicks, right/middle buttons, modifiers, the `mouse` option and scrolling. Mouse and touchpad behavior on real macOS and Windows hardware (including capture outside the window, speed and momentum) has not been tried.
+
+## Clipboard
+
+Use **Edit > Paste** or **Ctrl+Shift+V** on Windows/Linux, and **Cmd+V** on macOS. Plain text goes through `nvim_paste`, preserving literal text such as `<CR>` and normalizing CRLF/CR line endings. Paste follows Neovim's mode semantics: after the cursor in Normal mode, at the cursor in Insert mode, replacing the selection in Visual/Select mode, and only the first line on the command line. Empty or non-text clipboards do nothing. Large multiline text is streamed at line boundaries with a 64 KiB target; individual long lines can exceed that size. A streamed paste is one undo step. Tests cover 1 MiB and 10 MiB inputs; native responsiveness still needs testing.
+
+**Edit > Copy** or **Ctrl+Shift+C** copies a Visual/Select selection to the `+` register. On macOS the standard Edit menu supplies **Cmd+C**, **Cmd+V** and **Cmd+X**; Cut removes the selection using the `+` register. Copy and Cut do nothing without a selection. These operations bypass yank/delete mappings. **Ctrl+V stays with Neovim**, including block Visual mode. On Windows/Linux the menu consumes Ctrl+Shift+C/V before Neovim, so mappings for those combinations do not receive them.
+
+By default MyGoNVim supplies `g:clipboard` using the native plain-text clipboard, without an external clipboard program. `"+y` / `"+p` and the `*` register use it too; both registers refer to the same system clipboard. The provider is installed at `VimEnter` only if `g:clipboard` is still unset. Your own value, including `false`, is preserved. Set a custom provider **before** calling `has('clipboard')`: Neovim caches provider detection, and changing `g:clipboard` afterward does not update it. Clipboard access during your init, before `VimEnter`, uses Neovim's built-in detection.
+
+Native register requests have a two-second deadline. Failures or timeouts return empty text for reads or ignore writes and log the error. An already running native operation cannot be interrupted; pending requests are bounded, and an expired write waiting for the UI thread is skipped. Text ending in a newline is read as a linewise register; other text is characterwise. Blockwise register metadata is lost across the system clipboard. On Linux, keeping clipboard contents after exit depends on the desktop's clipboard manager.
+
+Real Neovim tests use a substitute clipboard to verify RPC callbacks, user-provider priority, selection commands and paste behavior. They do not verify the OS clipboard, native menu dispatch, cross-application exchange or IME interaction on macOS/Windows hardware.
+
+GUI Paste, Copy and Cut are ignored and logged when Neovim reports that it is waiting for a key (for example, after `"` or Insert-mode Ctrl+R). Each clipboard request has two seconds to reply; every paste chunk gets a fresh timer, so a paste that keeps receiving replies can complete even when its total duration exceeds two seconds. If a request times out, the queue continues sending later keys in order. The request already sent cannot be cancelled and may still change text or the clipboard when Neovim resumes. A paste timeout drops the remaining text, so the pasted text may be incomplete; the log records the failed request, `context deadline exceeded`, and that queued input continues and the paste may be incomplete. After the in-flight chunk returns, an empty final chunk closes a started stream. Further clipboard commands are ignored until that request and stream cleanup finish. Resize retains its existing behavior and can still delay queued input while Neovim waits for a key.
 
 ## Fonts
 

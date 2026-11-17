@@ -1,5 +1,5 @@
-// Package appmenu builds the application menu: a File menu with Open..., and on
-// macOS the standard app, Edit and Window menus around it.
+// Package appmenu builds File, Edit and Font menus, with the standard app and
+// Window menus on macOS.
 package appmenu
 
 import (
@@ -8,8 +8,10 @@ import (
 
 // Menu item IDs, for Menu.ItemByID.
 const (
-	IDOpen = "file.open"
-	IDExit = "file.exit"
+	IDOpen  = "file.open"
+	IDExit  = "file.exit"
+	IDCopy  = "edit.copy"
+	IDPaste = "edit.paste"
 )
 
 // Actions are what the menu items do. They run on the main thread, so they must
@@ -21,15 +23,18 @@ type Actions struct {
 	Quit func()
 	// Font, when set, adds the Font menu.
 	Font *FontMenu
+	// Edit handles copy/paste commands on Windows and Linux. macOS uses the
+	// native Edit menu, which dispatches InputCommand to the focused element.
+	Edit func(command string)
 }
 
 // Template returns the menu bar for goos, as runtime.GOOS spells it.
 //
 // macOS keeps the app menu (About, Hide, Quit), Edit and Window, and gets Open...
-// with Cmd+O next to Close. Elsewhere the menu bar has only File, with Open...
-// and Exit, and no shortcut: Ctrl+O is Neovim's jump list, and Ctrl+Q and Ctrl+W
-// are Neovim's too, so the menu must not take them. With a.Font set there is a
-// Font menu after File (Windows) or after Edit (macOS); it has no shortcuts either.
+// with Cmd+O next to Close. Elsewhere File has Open... and Exit without
+// shortcuts, preserving Ctrl+O, Ctrl+Q and Ctrl+W for Neovim; Edit has Copy and
+// Paste on Ctrl+Shift+C/V, preserving Ctrl+V too. With a.Font set there is a
+// Font menu after Edit, without shortcuts.
 func Template(goos string, a Actions) []*mygo.MenuItem {
 	open := &mygo.MenuItem{ID: IDOpen, Label: "Open\u2026", Click: func(*mygo.MenuItem, *mygo.Window) {
 		if a.Open != nil {
@@ -56,6 +61,17 @@ func Template(goos string, a Actions) []*mygo.MenuItem {
 		}
 	}}
 	bar := []*mygo.MenuItem{{Label: "File", Submenu: []*mygo.MenuItem{open, mygo.Separator(), exit}}}
+	edit := func(id, label, accelerator, command string) *mygo.MenuItem {
+		return &mygo.MenuItem{ID: id, Label: label, Accelerator: accelerator, Click: func(*mygo.MenuItem, *mygo.Window) {
+			if a.Edit != nil {
+				a.Edit(command)
+			}
+		}}
+	}
+	bar = append(bar, &mygo.MenuItem{Label: "Edit", Submenu: []*mygo.MenuItem{
+		edit(IDCopy, "Copy", "Ctrl+Shift+C", "copy"),
+		edit(IDPaste, "Paste", "Ctrl+Shift+V", "paste"),
+	}})
 	return append(bar, font...)
 }
 

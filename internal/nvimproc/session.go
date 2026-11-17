@@ -2,6 +2,7 @@ package nvimproc
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -28,6 +29,9 @@ type Options struct {
 	InitCmds []string
 	// Version is the GUI build version, reported in nvim_set_client_info.
 	Version string
+	// Clipboard supplies plain text for the + and * registers; nil leaves
+	// Neovim's provider alone. User configuration always takes precedence.
+	Clipboard *Clipboard
 	// Cols and Rows are the grid the UI attaches with.
 	Cols, Rows int
 	// OnRedraw gets each "redraw" notification's updates, on the client's
@@ -65,6 +69,7 @@ type Session struct {
 	logf       func(string, ...any)
 	callMu     sync.Mutex
 	recentCall string
+	clipboard  *clipboardProvider
 }
 
 type opKind uint8
@@ -74,6 +79,9 @@ const (
 	opCommand
 	opResize
 	opMouse
+	opPaste
+	opCopy
+	opCut
 )
 
 type op struct {
@@ -136,6 +144,14 @@ func Start(o Options) (*Session, error) {
 	}
 	s := &Session{nv: nv, cmd: cmd, stderr: stderr, done: make(chan struct{}), logf: logf}
 	s.cond = sync.NewCond(&s.mu)
+	if o.Clipboard != nil {
+		s.clipboard = newClipboardProvider(*o.Clipboard, logf)
+		if err := s.clipboard.register(nv.RegisterHandler); err != nil {
+			s.kill()
+			cmd.Wait()
+			return nil, err
+		}
+	}
 	if err := s.registerErrors(nv.RegisterHandler); err != nil {
 		s.kill()
 		cmd.Wait()
@@ -178,6 +194,12 @@ func Start(o Options) (*Session, error) {
 		s.Close()
 		return nil, fmt.Errorf("nvim_set_client_info: %w", err)
 	}
+	if s.clipboard != nil {
+		if err := nv.ExecLua(clipboardSetup, nil, nv.ChannelID()); err != nil {
+			s.Close()
+			return nil, fmt.Errorf("clipboard setup: %w", err)
+		}
+	}
 	if err := nv.AttachUI(o.Cols, o.Rows, UIOptions()); err != nil {
 		s.Close()
 		return nil, fmt.Errorf("nvim_ui_attach: %w (nvim said: %q)", err, s.stderr.String())
@@ -208,6 +230,17 @@ func (s *Session) Input(keys string) {
 		s.push(op{kind: opInput, s: keys})
 	}
 }
+
+// Paste queues literal text through nvim_paste, in order with surrounding keys.
+func (s *Session) Paste(text string) {
+	if text != "" {
+		s.push(op{kind: opPaste, s: text})
+	}
+}
+
+// Copy and Cut affect only a Visual or Select selection, using the + register.
+func (s *Session) Copy() { s.push(op{kind: opCopy}) }
+func (s *Session) Cut()  { s.push(op{kind: opCut}) }
 
 // Mouse queues nvim_input_mouse: button is "left", "right", "middle", "x1",
 // "x2" or "wheel"; action is "press", "drag", "release" or "move", and for the
@@ -253,6 +286,7 @@ func (s *Session) push(o op) {
 
 // work makes the queued calls in order.
 func (s *Session) work() {
+	var clipboardPending <-chan error
 	for {
 		s.mu.Lock()
 		for len(s.queue) == 0 && !s.closed {
@@ -291,6 +325,70 @@ func (s *Session) work() {
 			s.calling(method)
 			m := o.mouse
 			err = s.nv.InputMouse(m.button, m.action, m.modifier, 0, m.row, m.col)
+		case opPaste, opCopy, opCut:
+			// Keep at most one clipboard request alive after a timeout. Its
+			// reply belongs to its own RPC and buffered result channel.
+			if clipboardPending != nil {
+				select {
+				case <-clipboardPending:
+					clipboardPending = nil
+				default:
+					s.logf("clipboard operation skipped: previous request still pending")
+					continue
+				}
+			}
+			method = "nvim_get_mode"
+			s.calling(method)
+			var mode *nvim.Mode
+			mode, err = s.nv.Mode()
+			if err != nil {
+				break
+			}
+			if mode.Blocking {
+				s.logf("clipboard operation skipped: Neovim is waiting for input")
+				continue
+			}
+			method = "clipboard selection"
+			if o.kind == opPaste {
+				method = "nvim_paste"
+			}
+			s.calling(method)
+			ctx, cancel := context.WithCancel(context.Background())
+			requests := make(chan (<-chan struct{}))
+			result := make(chan error, 1)
+			go func(o op) {
+				var err error
+				if o.kind == opPaste {
+					err = pasteTextContext(ctx, o.s, func(text string, crlf bool, phase int) (bool, error) {
+						// Cleanup runs after a timed-out request returns, while
+						// the worker is already free to send recovery keys.
+						if ctx.Err() != nil && text == "" && phase == 3 {
+							return s.nv.Paste(text, crlf, phase)
+						}
+						return trackClipboardRequest(ctx, requests, func() (bool, error) {
+							return s.nv.Paste(text, crlf, phase)
+						})
+					})
+				} else {
+					_, err = trackClipboardRequest(ctx, requests, func() (bool, error) {
+						return true, s.nv.ExecLua(copySelection, nil, o.kind == opCut)
+					})
+				}
+				late := ctx.Err() != nil
+				result <- err
+				if late {
+					s.logf("clipboard request completed after deadline: %v", err)
+				}
+			}(o)
+			var timedOut bool
+			err, timedOut = waitClipboardRequests(requests, result)
+			if timedOut {
+				clipboardPending = result
+				cancel()
+				s.logf("%s request failed: %v; continuing queued input; paste may be incomplete", method, err)
+				continue
+			}
+			cancel()
 		}
 		if err != nil && !s.exitedSoon() {
 			s.logf("%s request failed: %v", method, err)

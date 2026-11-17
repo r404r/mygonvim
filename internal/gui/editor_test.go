@@ -10,11 +10,13 @@ import (
 
 // fake is a Backend that records what the editor sends.
 type fake struct {
-	mu      sync.Mutex
-	keys    []string
-	resizes [][2]int
-	cmds    []string
-	mice    []mouseCall
+	mu           sync.Mutex
+	keys         []string
+	resizes      [][2]int
+	cmds         []string
+	mice         []mouseCall
+	pastes       []string
+	copies, cuts int
 }
 
 type mouseCall struct {
@@ -361,3 +363,7 @@ func TestUnfocusedCursorIsAnOutline(t *testing.T) {
 		t.Errorf("outline interior %v, want background", got)
 	}
 }
+
+func (f *fake) Paste(s string) { f.mu.Lock(); f.pastes = append(f.pastes, s); f.mu.Unlock() }
+func (f *fake) Copy()          { f.mu.Lock(); f.copies++; f.mu.Unlock() }
+func (f *fake) Cut()           { f.mu.Lock(); f.cuts++; f.mu.Unlock() }

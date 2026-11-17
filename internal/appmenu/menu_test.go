@@ -59,8 +59,8 @@ func TestOtherSystemsGetFileMenuWithoutShortcuts(t *testing.T) {
 	for _, goos := range []string{"windows", "linux"} {
 		t.Run(goos, func(t *testing.T) {
 			tpl := Template(goos, Actions{})
-			if len(tpl) != 1 || tpl[0].Label != "File" {
-				t.Fatalf("menu bar = %+v, want only File", tpl)
+			if len(tpl) != 2 || tpl[0].Label != "File" || tpl[1].Label != "Edit" {
+				t.Fatalf("menu bar = %+v, want File and Edit", tpl)
 			}
 			file := tpl[0].Submenu
 			if len(file) != 3 || file[0].ID != IDOpen || file[1].Type != mygo.MenuItemSeparator || file[2].ID != IDExit {
@@ -69,7 +69,7 @@ func TestOtherSystemsGetFileMenuWithoutShortcuts(t *testing.T) {
 			if file[0].Label != "Open\u2026" || file[2].Label != "Exit" {
 				t.Errorf("labels = %q and %q, want \"Open\u2026\" and \"Exit\"", file[0].Label, file[2].Label)
 			}
-			walk(tpl, func(it *mygo.MenuItem) {
+			walk(tpl[:1], func(it *mygo.MenuItem) {
 				if it.Accelerator != "" {
 					t.Errorf("item %q has shortcut %q: it would take the key from Neovim", it.Label, it.Accelerator)
 				}
@@ -121,6 +121,29 @@ func TestTemplateBuildsAMyGoMenu(t *testing.T) {
 		if it := m.ItemByID(IDOpen); it == nil || it.Label != "Open\u2026" {
 			t.Errorf("%s: menu has no Open... item: %+v", goos, it)
 		}
+	}
+}
+
+func TestClipboardMenuPreservesVimKeys(t *testing.T) {
+	for _, goos := range []string{"windows", "linux"} {
+		var commands []string
+		tpl := Template(goos, Actions{Edit: func(s string) { commands = append(commands, s) }})
+		for _, tc := range []struct{ id, key string }{{IDCopy, "Ctrl+Shift+C"}, {IDPaste, "Ctrl+Shift+V"}} {
+			item := find(tpl, tc.id)
+			if item == nil || item.Role != "" || item.Accelerator != tc.key {
+				t.Fatalf("%s: %s = %+v", goos, tc.id, item)
+			}
+			item.Click(item, nil)
+		}
+		if !reflect.DeepEqual(commands, []string{"copy", "paste"}) {
+			t.Fatalf("commands=%q", commands)
+		}
+		walk(tpl, func(it *mygo.MenuItem) {
+			key := strings.ToLower(it.Accelerator)
+			if key == "ctrl+v" || key == "cmdorctrl+v" || it.Role == mygo.RolePaste {
+				t.Fatalf("Ctrl+V captured by %+v", it)
+			}
+		})
 	}
 }
 

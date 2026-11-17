@@ -85,6 +85,22 @@ func (l *lateBackend) Command(c string) {
 	}
 }
 
+func (l *lateBackend) Paste(text string) {
+	if s := l.be.Load(); s != nil {
+		s.Paste(text)
+	}
+}
+func (l *lateBackend) Copy() {
+	if s := l.be.Load(); s != nil {
+		s.Copy()
+	}
+}
+func (l *lateBackend) Cut() {
+	if s := l.be.Load(); s != nil {
+		s.Cut()
+	}
+}
+
 // start finds nvim, runs it, and opens the window. It runs on the main thread
 // once the app is ready.
 func start(opts options) (*nvimproc.Session, io.Closer) {
@@ -134,6 +150,7 @@ func start(opts options) (*nvimproc.Session, io.Closer) {
 	var fontMenu *appmenu.FontMenu
 	late := &lateBackend{}
 	ed := gui.NewEditor(late, cfg, gui.Hooks{
+		ReadClipboard: readClipboardForPaste,
 		FontChanged: func(c fontcfg.Choice) {
 			// Whoever changed the font (the menu, 'guifont'), the checks follow.
 			appmenu.SyncFont(menu, fontMenu, fontcfg.FirstFamily(c.Family), c.Size)
@@ -161,11 +178,12 @@ func start(opts options) (*nvimproc.Session, io.Closer) {
 	var quitting atomic.Bool
 	sess, err := nvimproc.Start(nvimproc.Options{
 		Bin: bin, Args: opts.files, Env: env, Cols: cfg.Cols, Rows: cfg.Rows,
-		InitCmds: initCmds(saved),
-		Version:  displayedVersion(),
-		OnRedraw: ed.OnRedraw,
-		OnExit:   exitHandler(&quitting, mygo.App.Quit, log.Printf),
-		Logf:     log.Printf,
+		InitCmds:  initCmds(saved),
+		Version:   displayedVersion(),
+		Clipboard: systemClipboard(),
+		OnRedraw:  ed.OnRedraw,
+		OnExit:    exitHandler(&quitting, mygo.App.Quit, log.Printf),
+		Logf:      log.Printf,
 	})
 	if err != nil {
 		return fail(err), logs
@@ -208,6 +226,7 @@ func start(opts options) (*nvimproc.Session, io.Closer) {
 			}, ed.OpenFiles, log.Printf)
 		},
 		Quit: mygo.App.Quit,
+		Edit: func(command string) { ed.EditCommand(command) },
 	}))
 	mygo.App.SetMenu(menu)
 	// Files dropped from Finder or Explorer open in Neovim.
