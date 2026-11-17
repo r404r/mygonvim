@@ -26,6 +26,11 @@ type realWheel struct {
 
 func startRealWheel(t *testing.T, file string, nvimArgs ...string) *realWheel {
 	t.Helper()
+	return startRealWheelWithClipboard(t, file, nil, nvimArgs...)
+}
+
+func startRealWheelWithClipboard(t *testing.T, file string, clipboard *nvimproc.Clipboard, nvimArgs ...string) *realWheel {
+	t.Helper()
 	bin := os.Getenv("NVIM_BIN")
 	if bin == "" {
 		var err error
@@ -39,7 +44,7 @@ func startRealWheel(t *testing.T, file string, nvimArgs ...string) *realWheel {
 	})
 	ed.wheel.GOOS = "darwin"
 	sess, err := nvimproc.Start(nvimproc.Options{
-		Bin: bin, Cols: 80, Rows: 24,
+		Bin: bin, Cols: 80, Rows: 24, Clipboard: clipboard,
 		Args:     append(append([]string{"--clean"}, nvimArgs...), file),
 		Env:      nvimproc.PortableEnv(os.Environ(), filepath.Join(t.TempDir(), "data")),
 		OnRedraw: func(u ...[]any) { ed.OnRedraw(u...) },

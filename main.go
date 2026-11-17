@@ -30,6 +30,9 @@ import (
 const appTitle = "MyGoNVim"
 
 func main() {
+	if len(os.Args) == 2 && os.Args[1] == clipboardReadArgument {
+		os.Exit(runClipboardReader())
+	}
 	opts, err := parseOptions(os.Args[1:], os.Stderr)
 	if errors.Is(err, flag.ErrHelp) {
 		return
@@ -150,7 +153,11 @@ func start(opts options) (*nvimproc.Session, io.Closer) {
 	var fontMenu *appmenu.FontMenu
 	late := &lateBackend{}
 	ed := gui.NewEditor(late, cfg, gui.Hooks{
-		ReadClipboard: readClipboardForPaste,
+		PasteClipboard: func() {
+			if s := late.be.Load(); s != nil {
+				s.PasteClipboard()
+			}
+		},
 		FontChanged: func(c fontcfg.Choice) {
 			// Whoever changed the font (the menu, 'guifont'), the checks follow.
 			appmenu.SyncFont(menu, fontMenu, fontcfg.FirstFamily(c.Family), c.Size)

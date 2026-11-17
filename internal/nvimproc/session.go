@@ -80,6 +80,7 @@ const (
 	opResize
 	opMouse
 	opPaste
+	opPasteClipboard
 	opCopy
 	opCut
 )
@@ -146,6 +147,7 @@ func Start(o Options) (*Session, error) {
 	s.cond = sync.NewCond(&s.mu)
 	if o.Clipboard != nil {
 		s.clipboard = newClipboardProvider(*o.Clipboard, logf)
+		s.clipboard.warn = s.warn
 		if err := s.clipboard.register(nv.RegisterHandler); err != nil {
 			s.kill()
 			cmd.Wait()
@@ -238,6 +240,10 @@ func (s *Session) Paste(text string) {
 	}
 }
 
+// PasteClipboard queues a bounded native read and literal paste, preserving
+// the order of surrounding input without reading on the caller's UI thread.
+func (s *Session) PasteClipboard() { s.push(op{kind: opPasteClipboard}) }
+
 // Copy and Cut affect only a Visual or Select selection, using the + register.
 func (s *Session) Copy() { s.push(op{kind: opCopy}) }
 func (s *Session) Cut()  { s.push(op{kind: opCut}) }
@@ -325,7 +331,7 @@ func (s *Session) work() {
 			s.calling(method)
 			m := o.mouse
 			err = s.nv.InputMouse(m.button, m.action, m.modifier, 0, m.row, m.col)
-		case opPaste, opCopy, opCut:
+		case opPaste, opPasteClipboard, opCopy, opCut:
 			// Keep at most one clipboard request alive after a timeout. Its
 			// reply belongs to its own RPC and buffered result channel.
 			if clipboardPending != nil {
@@ -334,6 +340,7 @@ func (s *Session) work() {
 					clipboardPending = nil
 				default:
 					s.logf("clipboard operation skipped: previous request still pending")
+					s.warn("clipboard operation skipped: previous request still pending")
 					continue
 				}
 			}
@@ -346,10 +353,11 @@ func (s *Session) work() {
 			}
 			if mode.Blocking {
 				s.logf("clipboard operation skipped: Neovim is waiting for input")
+				s.warn("clipboard operation skipped: Neovim is waiting for input")
 				continue
 			}
 			method = "clipboard selection"
-			if o.kind == opPaste {
+			if o.kind == opPaste || o.kind == opPasteClipboard {
 				method = "nvim_paste"
 			}
 			s.calling(method)
@@ -358,7 +366,23 @@ func (s *Session) work() {
 			result := make(chan error, 1)
 			go func(o op) {
 				var err error
-				if o.kind == opPaste {
+				if o.kind == opPasteClipboard {
+					if s.clipboard == nil {
+						result <- nil
+						return
+					}
+					_, err = trackClipboardRequest(ctx, requests, func() (bool, error) {
+						var readErr error
+						o.s, readErr = s.clipboard.call(s.clipboard.Read)
+						return true, readErr
+					})
+					if err != nil {
+						s.clipboard.failed("read", err)
+						result <- nil
+						return
+					}
+				}
+				if o.kind == opPaste || o.kind == opPasteClipboard {
 					err = pasteTextContext(ctx, o.s, func(text string, crlf bool, phase int) (bool, error) {
 						// Cleanup runs after a timed-out request returns, while
 						// the worker is already free to send recovery keys.
@@ -375,6 +399,13 @@ func (s *Session) work() {
 					})
 				}
 				late := ctx.Err() != nil
+				if err != nil {
+					if o.kind == opPaste || o.kind == opPasteClipboard {
+						s.warn(fmt.Sprintf("paste incomplete: %v", err))
+					} else {
+						s.warn(fmt.Sprintf("clipboard selection failed: %v", err))
+					}
+				}
 				result <- err
 				if late {
 					s.logf("clipboard request completed after deadline: %v", err)
