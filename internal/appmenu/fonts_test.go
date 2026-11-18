@@ -86,9 +86,9 @@ func TestFontMenuPlacesAndChecksItems(t *testing.T) {
 					tops = append(tops, it.Label)
 				}
 			}
-			want := []string{"File", "Edit", "Font"}
+			want := []string{"File", "Edit", "Font", "Help"}
 			if goos == "darwin" {
-				want = []string{"appMenu", "File", "editMenu", "Font", "windowMenu"}
+				want = []string{"MyGoNVim", "File", "editMenu", "Font", "windowMenu"}
 			}
 			if !reflect.DeepEqual(tops, want) {
 				t.Fatalf("menus = %q, want %q", tops, want)
@@ -133,7 +133,7 @@ func TestNoFontMenuWithoutFontActions(t *testing.T) {
 
 func TestFontMenuWithoutFamiliesOrSizes(t *testing.T) {
 	bar := Template("windows", Actions{Font: &FontMenu{Sizes: []float32{14}}})
-	if len(bar) != 3 || len(bar[2].Submenu) != 1 || bar[2].Submenu[0].Label != "Size" {
+	if len(bar) != 4 || len(bar[2].Submenu) != 1 || bar[2].Submenu[0].Label != "Size" {
 		t.Errorf("without monospaced families the Font menu should have only Size: %+v", bar[2].Submenu)
 	}
 	bar = Template("windows", Actions{Font: &FontMenu{Families: []string{"Menlo"}}})

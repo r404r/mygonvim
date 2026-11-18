@@ -79,3 +79,6 @@ func (f *File) Close() error {
 	defer f.mu.Unlock()
 	return f.f.Close()
 }
+
+// Path is the filename opened for this log.
+func (f *File) Path() string { return f.f.Name() }
