@@ -32,11 +32,11 @@
 
 它运行 `nvim --embed`，把 Neovim 的单元格网格保存在内存中，并用 MyGo 的 `ui.Shape` 和 `Painter.Glyphs` 逐格绘制。
 
-**状态：MVP 第 1 步（部分完成），版本 0.0.4。** Linux 已经验证（单元测试与集成测试、一个真实窗口，以及 CI）：可以打开文件、编辑并保存；语法着色、CJK 与 emoji、按模式变化的光标形状、窗口标题、调整窗口大小、Ctrl/Alt/特殊键。输入法组合串在无头测试中绘制在光标处；macOS 与 Windows 上的真实 IME 未经测试。macOS 和 Windows 可以编译，能通过 CI 单元测试，也有未签名的预览构建，但还没有在真实机器上运行过，因此 MVP 1 并未完成。鼠标滚轮和触控板会滚动指针下方的窗口（已在无头窗口里对真实 Neovim 测试，尚未在真实的 Mac 或 Windows 机器上测试）。鼠标点击和拖动也已在无头窗口里对真实 Neovim 测试；尚未在真实的 macOS 或 Windows 硬件上尝试。剪贴板粘贴和寄存器回调已用替代剪贴板对真实 Neovim 测试；原生剪贴板交换和菜单快捷键仍需要在真实的 macOS 和 Windows 上测试。尚未具备：高 DPI 打磨、命令行 / 弹出菜单 / 标签栏 / 多网格 UI、捆绑的 Neovim，或已签名 / 已公证的包。设计文档另行维护。
+**状态：MVP 第 1 步（部分完成），版本 0.0.5。** Linux 已经验证（单元测试与集成测试、一个真实窗口，以及 CI）：可以打开文件、编辑并保存；语法着色、CJK 与 emoji、按模式变化的光标形状、窗口标题、调整窗口大小、Ctrl/Alt/特殊键。输入法组合串在无头测试中绘制在光标处；macOS 与 Windows 上的真实 IME 未经测试。macOS 和 Windows 可以编译，能通过 CI 单元测试，也有未签名的预览构建，但还没有在真实机器上运行过，因此 MVP 1 并未完成。鼠标滚轮和触控板会滚动指针下方的窗口（已在无头窗口里对真实 Neovim 测试，尚未在真实的 Mac 或 Windows 机器上测试）。鼠标点击和拖动也已在无头窗口里对真实 Neovim 测试；尚未在真实的 macOS 或 Windows 硬件上尝试。剪贴板粘贴和寄存器回调已用替代剪贴板对真实 Neovim 测试；原生剪贴板交换和菜单快捷键仍需要在真实的 macOS 和 Windows 上测试。尚未具备：高 DPI 打磨、命令行 / 弹出菜单 / 标签栏 / 多网格 UI、捆绑的 Neovim，或已签名 / 已公证的包。设计文档另行维护。
 
 ## 预构建版本
 
-`mygo.json` 的版本是 `0.0.4`。推送与该版本匹配的 `v*` 标签会运行 [`.github/workflows/release.yml`](.github/workflows/release.yml)，把 macOS arm64 与 amd64 的 `.app` zip 和 `.dmg`，以及 Windows amd64 便携 zip（包含一个空的 `data/` 文件夹；不捆绑 Neovim），附加到**草稿** GitHub Release。草稿（包括现有的 v0.0.1、v0.0.2 和 v0.0.3 草稿）尚未发布，因此这些资源还没有出现在公开的 Releases 页面上。
+`mygo.json` 的版本是 `0.0.5`。推送与该版本匹配的 `v*` 标签会运行 [`.github/workflows/release.yml`](.github/workflows/release.yml)，把 macOS arm64 与 amd64 的 `.app` zip 和 `.dmg`，以及 Windows amd64 便携 zip（包含一个空的 `data/` 文件夹；不捆绑 Neovim），附加到**草稿** GitHub Release。v0.0.1、v0.0.2、v0.0.3 和 v0.0.4 仍是未公开的草稿。
 
 这些构建没有签名。macOS 应用是 ad hoc 签名，且未经公证；Gatekeeper 很可能会在其他 Mac 上拦截它们。构建声明的最低系统是 macOS 13.0（`mygo.json` 中的 `macos.minimumSystemVersion`）。
 
