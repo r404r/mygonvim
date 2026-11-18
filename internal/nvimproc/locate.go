@@ -52,11 +52,15 @@ func Candidates(goos, flagPath, envPath string, dirs []string) []string {
 	return out
 }
 
-// Locate returns the first of Candidates that exists and can be run. An
+// Locate returns the absolute path of the first usable candidate. An
 // explicit -nvim or $MYGONVIM_NVIM that does not exist is an error, not a
 // reason to look elsewhere.
 func Locate(flagPath, envPath string, dirs []string) (string, error) {
-	return locate(runtime.GOOS, flagPath, envPath, dirs, fileExists, exec.LookPath)
+	path, err := locate(runtime.GOOS, flagPath, envPath, dirs, fileExists, exec.LookPath)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Abs(path)
 }
 
 func locate(goos, flagPath, envPath string, dirs []string, exists func(string) bool, lookPath func(string) (string, error)) (string, error) {

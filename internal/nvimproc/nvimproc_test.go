@@ -326,3 +326,22 @@ func TestNoInitCmdsMeansNoExtraArguments(t *testing.T) {
 		t.Errorf("'title' = %d, %v; want the built-in --cmd to still run", title, err)
 	}
 }
+
+func TestLocateResolvesRelativeExecutableForPathActions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), BinaryName())
+	if err := os.WriteFile(path, []byte("test executable"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	relative, err := filepath.Rel(cwd, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Locate(relative, "", nil)
+	if err != nil || got != path {
+		t.Fatalf("Locate(%q) = %q, %v; want %q", relative, got, err, path)
+	}
+}
