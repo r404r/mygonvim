@@ -20,6 +20,7 @@ import (
 	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 
+	"github.com/r404r/mygonvim/internal/about"
 	"github.com/r404r/mygonvim/internal/appmenu"
 	"github.com/r404r/mygonvim/internal/fontcfg"
 	"github.com/r404r/mygonvim/internal/grid"
@@ -117,7 +118,9 @@ func start(opts options) (*nvimproc.Session, io.Closer) {
 	// Portable mode: a data/ folder next to the program keeps Neovim's config,
 	// data, state and cache, and the app's own, beside it.
 	env := os.Environ()
+	portable := false
 	if data, ok := nvimproc.PortableDir(exeDir); ok {
+		portable = true
 		if err := nvimproc.EnsurePortableDirs(data); err != nil {
 			return fail(err), nil
 		}
@@ -128,6 +131,10 @@ func start(opts options) (*nvimproc.Session, io.Closer) {
 		mygo.App.SetPath(mygo.PathLogs, filepath.Join(app, "logs"))
 	}
 	logs := startLogging(os.Stderr)
+	logPath := ""
+	if f, ok := logs.(interface{ Path() string }); ok {
+		logPath = f.Path()
+	}
 	bin, err := nvimproc.Locate(opts.nvim, os.Getenv("MYGONVIM_NVIM"), dirs)
 	if err != nil {
 		return fail(err), logs
@@ -223,8 +230,10 @@ func start(opts options) (*nvimproc.Session, io.Closer) {
 		Family: fontcfg.FirstFamily(cur.Family), Size: cur.Size,
 		SetFamily: ed.ChooseFamily, SetSize: ed.ChooseSize,
 	}
+	aboutWindow := newAbout(w, about.Process{Version: displayedVersion(), Portable: portable, Settings: settingsPath, Log: logPath, Nvim: bin}, sess.Nvim())
 	menu = mygo.NewMenu(appmenu.Template(runtime.GOOS, appmenu.Actions{
-		Font: fontMenu,
+		Font:  fontMenu,
+		About: aboutWindow.Open,
 		// The dialog blocks until it is dismissed, and menu items run on the
 		// main thread: wait for it on a goroutine of its own.
 		Open: func() {

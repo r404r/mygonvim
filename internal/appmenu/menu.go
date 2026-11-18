@@ -1,4 +1,4 @@
-// Package appmenu builds File, Edit and Font menus, with the standard app and
+// Package appmenu builds File, Edit, Font and Help menus, with the standard app and
 // Window menus on macOS.
 package appmenu
 
@@ -12,11 +12,14 @@ const (
 	IDExit  = "file.exit"
 	IDCopy  = "edit.copy"
 	IDPaste = "edit.paste"
+	IDAbout = "help.about"
 )
 
 // Actions are what the menu items do. They run on the main thread, so they must
 // return quickly: start a goroutine for anything that waits.
 type Actions struct {
+	// About opens or focuses the application information window.
+	About func()
 	// Open is the File > Open... item.
 	Open func()
 	// Quit is the File > Exit item (Windows and Linux).
@@ -34,8 +37,14 @@ type Actions struct {
 // with Cmd+O next to Close. Elsewhere File has Open... and Exit without
 // shortcuts, preserving Ctrl+O, Ctrl+Q and Ctrl+W for Neovim; Edit has Copy and
 // Paste on Ctrl+Shift+C/V, preserving Ctrl+V too. With a.Font set there is a
-// Font menu after Edit, without shortcuts.
+// Font menu after Edit, without shortcuts. Windows and Linux append Help with
+// About; macOS lists application roles explicitly to replace the system About.
 func Template(goos string, a Actions) []*mygo.MenuItem {
+	about := &mygo.MenuItem{ID: IDAbout, Label: "About MyGoNVim", Click: func(*mygo.MenuItem, *mygo.Window) {
+		if a.About != nil {
+			a.About()
+		}
+	}}
 	open := &mygo.MenuItem{ID: IDOpen, Label: "Open\u2026", Click: func(*mygo.MenuItem, *mygo.Window) {
 		if a.Open != nil {
 			a.Open()
@@ -48,7 +57,11 @@ func Template(goos string, a Actions) []*mygo.MenuItem {
 	if goos == "darwin" {
 		open.Accelerator = "Cmd+O"
 		bar := []*mygo.MenuItem{
-			{Role: mygo.RoleAppMenu},
+			{Label: "MyGoNVim", Submenu: []*mygo.MenuItem{
+				about, mygo.Separator(), {Role: mygo.RoleServices}, mygo.Separator(),
+				{Role: mygo.RoleHide}, {Role: mygo.RoleHideOthers}, {Role: mygo.RoleUnhide},
+				mygo.Separator(), {Role: mygo.RoleQuit},
+			}},
 			{Label: "File", Submenu: []*mygo.MenuItem{open, mygo.Separator(), {Role: mygo.RoleClose}}},
 			{Role: mygo.RoleEditMenu},
 		}
@@ -72,7 +85,8 @@ func Template(goos string, a Actions) []*mygo.MenuItem {
 		edit(IDCopy, "Copy", "Ctrl+Shift+C", "copy"),
 		edit(IDPaste, "Paste", "Ctrl+Shift+V", "paste"),
 	}})
-	return append(bar, font...)
+	bar = append(bar, font...)
+	return append(bar, &mygo.MenuItem{Label: "Help", Submenu: []*mygo.MenuItem{about}})
 }
 
 // ChooseAndOpen asks the user for files with pick and gives them to open. When

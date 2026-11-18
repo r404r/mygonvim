@@ -37,7 +37,7 @@ func TestMacMenuKeepsStandardMenusAndAddsOpen(t *testing.T) {
 			tops = append(tops, it.Label)
 		}
 	}
-	if want := []string{"appMenu", "File", "editMenu", "windowMenu"}; !reflect.DeepEqual(tops, want) {
+	if want := []string{"MyGoNVim", "File", "editMenu", "windowMenu"}; !reflect.DeepEqual(tops, want) {
 		t.Fatalf("menus = %q, want %q", tops, want)
 	}
 	file := tpl[1].Submenu
@@ -59,7 +59,7 @@ func TestOtherSystemsGetFileMenuWithoutShortcuts(t *testing.T) {
 	for _, goos := range []string{"windows", "linux"} {
 		t.Run(goos, func(t *testing.T) {
 			tpl := Template(goos, Actions{})
-			if len(tpl) != 2 || tpl[0].Label != "File" || tpl[1].Label != "Edit" {
+			if len(tpl) != 3 || tpl[0].Label != "File" || tpl[1].Label != "Edit" {
 				t.Fatalf("menu bar = %+v, want File and Edit", tpl)
 			}
 			file := tpl[0].Submenu
@@ -176,4 +176,48 @@ func TestChooseAndOpen(t *testing.T) {
 		t.Errorf("a failed dialog logged %d times, want once", len(logged))
 	}
 	ChooseAndOpen(func() ([]string, error) { return nil, errors.New("boom") }, open, nil) // nil logf is fine
+}
+
+func TestAboutMenuPlacementAndAction(t *testing.T) {
+	for _, goos := range []string{"darwin", "windows", "linux"} {
+		t.Run(goos, func(t *testing.T) {
+			calls := 0
+			tpl := Template(goos, Actions{Font: testFontMenu(), About: func() { calls++ }})
+			count := 0
+			roles := map[mygo.MenuRole]bool{}
+			walk(tpl, func(it *mygo.MenuItem) {
+				roles[it.Role] = true
+				if it.ID == IDAbout {
+					count++
+					if it.Label != "About MyGoNVim" || it.Accelerator != "" || it.Role != "" {
+						t.Fatalf("About: %+v", it)
+					}
+					it.Click(it, nil)
+				}
+				if it.Role == mygo.RoleAppMenu || it.Role == mygo.RoleAbout {
+					t.Fatalf("system About could duplicate the window: %+v", it)
+				}
+			})
+			if count != 1 || calls != 1 {
+				t.Fatalf("About count=%d calls=%d", count, calls)
+			}
+			if goos == "darwin" {
+				if tpl[0].Submenu[0].ID != IDAbout {
+					t.Fatal("About is not in application menu")
+				}
+				for _, role := range []mygo.MenuRole{mygo.RoleServices, mygo.RoleHide, mygo.RoleHideOthers, mygo.RoleUnhide, mygo.RoleQuit} {
+					if !roles[role] {
+						t.Errorf("missing %s", role)
+					}
+				}
+			} else {
+				help := tpl[len(tpl)-1]
+				if tpl[len(tpl)-2].Label != "Font" || help.Label != "Help" || help.Accelerator != "" || len(help.Submenu) != 1 || help.Submenu[0].ID != IDAbout {
+					t.Fatalf("Help placement: %+v", tpl)
+				}
+			}
+			it := find(Template(goos, Actions{}), IDAbout)
+			it.Click(it, nil)
+		})
+	}
 }

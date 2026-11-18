@@ -30,6 +30,9 @@ func TestLoggingPersistsWithoutConsole(t *testing.T) {
 		if file == nil {
 			t.Fatal("no log file")
 		}
+		if got := file.(interface{ Path() string }).Path(); got != filepath.Join(path, logfile.Name) {
+			t.Fatalf("reported log path = %q", got)
+		}
 		log.Print("persist this without stderr")
 		if err := file.Close(); err != nil {
 			t.Fatal(err)

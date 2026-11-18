@@ -326,3 +326,59 @@ func TestNoInitCmdsMeansNoExtraArguments(t *testing.T) {
 		t.Errorf("'title' = %d, %v; want the built-in --cmd to still run", title, err)
 	}
 }
+
+func TestLocateResolvesRelativeExecutableForPathActions(t *testing.T) {
+	t.Chdir(t.TempDir())
+	relative := filepath.Join("bin", BinaryName())
+	if err := os.Mkdir("bin", 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(relative, []byte("test executable"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(cwd, relative)
+	got, err := Locate(relative, "", nil)
+	if err != nil || got != path {
+		t.Fatalf("Locate(%q) = %q, %v; want %q", relative, got, err, path)
+	}
+}
+
+func TestLocatePreservesAbsoluteExecutablePath(t *testing.T) {
+	// Keep the checkout's working directory: Windows runners put temp files
+	// on C: while the checkout is on D:, exercising different volumes.
+	root := t.TempDir()
+	path := filepath.Join(root, "nvim", "bin", BinaryName())
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte("test executable"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("working directory: %s; executable: %s", cwd, path)
+	for _, source := range []string{"flag", "environment", "bundled"} {
+		t.Run(source, func(t *testing.T) {
+			var flagPath, envPath string
+			var dirs []string
+			switch source {
+			case "flag":
+				flagPath = path
+			case "environment":
+				envPath = path
+			case "bundled":
+				dirs = []string{root}
+			}
+			got, err := Locate(flagPath, envPath, dirs)
+			if err != nil || got != path {
+				t.Fatalf("Locate(%s) = %q, %v; want %q", source, got, err, path)
+			}
+		})
+	}
+}
