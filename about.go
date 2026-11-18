@@ -27,13 +27,27 @@ func newAbout(parent *mygo.Window, process about.Process, client about.LuaClient
 			Reveal: mygo.Shell.ShowItemInFolder, OpenDirectory: mygo.Shell.OpenPath,
 			OpenExternal: mygo.Shell.OpenExternal, Stat: os.Stat,
 		},
-		NewWindow: func(view func(*ui.Context), closed func()) about.Window {
-			w := mygo.NewWindow(mygo.WindowOptions{
-				Title: "About MyGoNVim", Parent: parent, Width: 720, Height: 780,
-				MinWidth: 520, MinHeight: 420, Content: ui.View(view),
-			})
-			w.OnClosed(closed)
-			return w
-		},
+		NewWindow: aboutWindowFactory(parent, func(opts mygo.WindowOptions) aboutNativeWindow {
+			return mygo.NewWindow(opts)
+		}),
+	}
+}
+
+type aboutNativeWindow interface {
+	about.Window
+	SetMenu(*mygo.Menu)
+	OnClosed(func()) func()
+}
+
+func aboutWindowFactory(parent *mygo.Window, create func(mygo.WindowOptions) aboutNativeWindow) about.Factory {
+	return func(view func(*ui.Context), closed func()) about.Window {
+		w := create(mygo.WindowOptions{
+			Title: "About MyGoNVim", Parent: parent, Width: 720, Height: 780,
+			MinWidth: 520, MinHeight: 420, Content: ui.View(view),
+		})
+		// Override the inherited window menu; macOS keeps its application menu.
+		w.SetMenu(mygo.NewMenu(nil))
+		w.OnClosed(closed)
+		return w
 	}
 }
