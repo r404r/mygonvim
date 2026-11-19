@@ -1,7 +1,7 @@
 {
   "name": "MyGoNVim",
   "identifier": "io.github.r404r.mygonvim",
-  "version": "0.0.5",
+  "version": "0.0.6",
   "license": "MIT",
   "out": "build",
   "macos": { "minimumSystemVersion": "13.0" }
