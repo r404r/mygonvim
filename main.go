@@ -190,8 +190,11 @@ func start(opts options) (*nvimproc.Session, io.Closer) {
 	})
 
 	var quitting atomic.Bool
+	cwd, cwdErr := os.Getwd()
+	home, homeErr := os.UserHomeDir()
 	sess, err := nvimproc.Start(nvimproc.Options{
 		Bin: bin, Args: opts.files, Env: env, Cols: cfg.Cols, Rows: cfg.Rows,
+		Dir:       nvimStartDir(runtime.GOOS, cwd, cwdErr, home, homeErr),
 		InitCmds:  initCmds(saved),
 		Version:   displayedVersion(),
 		Clipboard: systemClipboard(),
@@ -255,6 +258,15 @@ func start(opts options) (*nvimproc.Session, io.Closer) {
 	}
 	w.Invalidate()
 	return sess, logs
+}
+
+// nvimStartDir uses the home directory for macOS launches from /, as in Finder.
+// An empty result leaves Neovim inheriting this process's working directory.
+func nvimStartDir(goos, cwd string, cwdErr error, home string, homeErr error) string {
+	if goos == "darwin" && cwdErr == nil && cwd == "/" && homeErr == nil && home != "" {
+		return home
+	}
+	return ""
 }
 
 // initCmds presets Neovim's 'guifont' with the font saved from the menu, ahead
