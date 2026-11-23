@@ -215,6 +215,31 @@ func TestSessionAgainstRealNvim(t *testing.T) {
 	s.Input("x") // after exit: dropped, no panic, no block
 }
 
+func TestSessionWorkingDirectory(t *testing.T) {
+	bin := testBin(t)
+	dir := t.TempDir()
+	// Resolve macOS's /var symlink before comparing with Neovim's getcwd().
+	dir, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := Start(Options{
+		Bin: bin, Args: []string{"--clean"}, Dir: dir,
+		Env: PortableEnv(os.Environ(), filepath.Join(dir, "data")),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	var got string
+	if err := s.Nvim().Eval("getcwd()", &got); err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Clean(got) != filepath.Clean(dir) {
+		t.Errorf("getcwd() = %q, want %q", got, dir)
+	}
+}
+
 func TestCloseKillsAPromptNvim(t *testing.T) {
 	bin := testBin(t)
 	s, err := Start(Options{Bin: bin, Args: []string{"--clean"}, Env: PortableEnv(os.Environ(), t.TempDir())})
