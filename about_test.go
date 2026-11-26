@@ -45,7 +45,7 @@ func (w *aboutMenuWindow) OnClosed(closed func()) func() {
 func TestAboutWindowOverridesInheritedMenu(t *testing.T) {
 	parent := &mygo.Window{}
 	w := &aboutMenuWindow{menu: mygo.NewMenu([]*mygo.MenuItem{{Label: "File"}})}
-	factory := aboutWindowFactory(parent, func(opts mygo.WindowOptions) aboutNativeWindow {
+	factory := aboutWindowFactory(parent, func() mygo.Point { return mygo.Point{} }, func(opts mygo.WindowOptions) aboutNativeWindow {
 		if opts.Parent != parent || opts.Content == nil {
 			t.Fatal("About window lost its parent or content")
 		}

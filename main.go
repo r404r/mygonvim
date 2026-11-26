@@ -131,11 +131,13 @@ func start(opts options) (*nvimproc.Session, io.Closer) {
 		mygo.App.SetPath(mygo.PathLogs, filepath.Join(app, "logs"))
 	}
 	logs := startLogging(os.Stderr)
+	startCrashLogging()
 	logPath := ""
 	if f, ok := logs.(interface{ Path() string }); ok {
 		logPath = f.Path()
 	}
 	bin, err := nvimproc.Locate(opts.nvim, os.Getenv("MYGONVIM_NVIM"), dirs)
+	logStartup(displayedVersion(), portable, bin, logPath)
 	if err != nil {
 		return fail(err), logs
 	}
