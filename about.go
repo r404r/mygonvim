@@ -27,7 +27,13 @@ func newAbout(parent *mygo.Window, process about.Process, client about.LuaClient
 			Reveal: mygo.Shell.ShowItemInFolder, OpenDirectory: mygo.Shell.OpenPath,
 			OpenExternal: mygo.Shell.OpenExternal, Stat: os.Stat,
 		},
-		NewWindow: aboutWindowFactory(parent, func(opts mygo.WindowOptions) aboutNativeWindow {
+		NewWindow: aboutWindowFactory(parent, func() mygo.Point {
+			bounds := parent.Bounds()
+			if parent.IsMinimized() {
+				bounds = mygo.Rectangle{}
+			}
+			return aboutWindowPosition(bounds, mygo.Screen.DisplayMatching(bounds), mygo.Screen.PrimaryDisplay())
+		}, func(opts mygo.WindowOptions) aboutNativeWindow {
 			return mygo.NewWindow(opts)
 		}),
 	}
@@ -39,15 +45,37 @@ type aboutNativeWindow interface {
 	OnClosed(func()) func()
 }
 
-func aboutWindowFactory(parent *mygo.Window, create func(mygo.WindowOptions) aboutNativeWindow) about.Factory {
+func aboutWindowFactory(parent *mygo.Window, position func() mygo.Point, create func(mygo.WindowOptions) aboutNativeWindow) about.Factory {
 	return func(view func(*ui.Context), closed func()) about.Window {
+		p := position()
 		w := create(mygo.WindowOptions{
 			Title: "About MyGoNVim", Parent: parent, Width: 720, Height: 780,
+			X: p.X, Y: p.Y,
 			MinWidth: 520, MinHeight: 420, Content: ui.View(view),
 		})
 		// Override the inherited window menu; macOS keeps its application menu.
 		w.SetMenu(mygo.NewMenu(nil))
 		w.OnClosed(closed)
 		return w
+	}
+}
+
+// aboutWindowPosition uses MyGo's screen DIPs for both windows and displays.
+// DisplayMatching also returns a display for an off-screen rectangle, so check
+// for an actual intersection before centering over the parent.
+func aboutWindowPosition(parent mygo.Rectangle, matched, primary mygo.Display) mygo.Point {
+	b := matched.Bounds
+	work := matched.WorkArea
+	if parent.Width <= 0 || parent.Height <= 0 ||
+		min(parent.X+parent.Width, b.X+b.Width) <= max(parent.X, b.X) ||
+		min(parent.Y+parent.Height, b.Y+b.Height) <= max(parent.Y, b.Y) {
+		work = primary.WorkArea
+		parent = work
+	}
+	x := parent.X + (parent.Width-720)/2
+	y := parent.Y + (parent.Height-780)/2
+	return mygo.Point{
+		X: max(work.X, min(x, work.X+work.Width-720)),
+		Y: max(work.Y, min(y, work.Y+work.Height-780)),
 	}
 }
