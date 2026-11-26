@@ -2,12 +2,77 @@ package gui
 
 import (
 	"fmt"
+	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/r404r/mygonvim/internal/nvimproc"
 	"github.com/r404r/mygonvim/internal/winlayout"
 )
+
+func TestRealNvimUnchangedLayoutDoesNotInvalidate(t *testing.T) {
+	bin := os.Getenv("NVIM_BIN")
+	if bin == "" {
+		var err error
+		if bin, err = nvimproc.Locate("", "", nil); err != nil {
+			t.Skip("no nvim: set NVIM_BIN or put nvim on PATH")
+		}
+	}
+	var invalidations, publications, flushes atomic.Int64
+	ed := NewEditor(nil, Config{Cols: 80, Rows: 24}, Hooks{
+		Invalidate: func() { invalidations.Add(1) },
+	})
+	sess, err := nvimproc.Start(nvimproc.Options{
+		Bin: bin, Cols: 80, Rows: 24,
+		Args: []string{"--clean", "--cmd", `lua local original = vim.fn.getwininfo; vim.g.layout_queries = 0; vim.fn.getwininfo = function(...) vim.g.layout_queries = vim.g.layout_queries + 1; return original(...) end`},
+		Env:  nvimproc.PortableEnv(os.Environ(), t.TempDir()),
+		// Count redraws separately to isolate frames requested by layout updates.
+		OnRedraw: func(updates ...[]any) {
+			for _, u := range updates {
+				if len(u) > 0 && u[0] == "flush" {
+					flushes.Add(1)
+				}
+			}
+		},
+		OnWindowLayout: func(s *winlayout.Snapshot) {
+			ed.OnWindowLayout(s)
+			publications.Add(1)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	r := &realWheel{t: t, ed: ed, sess: sess}
+	r.wait("initial layout publication", func() bool { return publications.Load() > 0 })
+	for i := 0; i < 10; i++ {
+		beforeFlush, beforeQuery := flushes.Load(), r.eval("g:layout_queries")
+		if err := sess.Nvim().ExecLua(`vim.api.nvim_buf_set_lines(0, 0, 1, false, {string.rep('x', ...) }); vim.cmd('redraw')`, nil, i+1); err != nil {
+			t.Fatal(err)
+		}
+		r.wait("content redraw flush", func() bool { return flushes.Load() > beforeFlush })
+		r.wait("layout query after redraw", func() bool { return r.eval("g:layout_queries") > beforeQuery })
+	}
+	// Later queries prove earlier identical responses have been processed.
+	if got := publications.Load(); got != 1 {
+		t.Fatalf("unchanged geometry published %d times, want 1", got)
+	}
+	if got := invalidations.Load(); got != 1 {
+		t.Fatalf("unchanged geometry requested %d frames, want 1", got)
+	}
+	if err := sess.Nvim().Command("vsplit"); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("split layout publication", func() bool {
+		v := ed.layout.Load()
+		return v != nil && len(v.Windows) == 2 && publications.Load() == 2
+	})
+	if got := invalidations.Load(); got != 2 {
+		t.Fatalf("split requested %d frames, want 2", got)
+	}
+}
 
 func separatorHover(r *realWheel, row, col int, want ui.Cursor) {
 	r.t.Helper()

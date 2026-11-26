@@ -1,6 +1,10 @@
 package nvimproc
 
-import "github.com/r404r/mygonvim/internal/winlayout"
+import (
+	"slices"
+
+	"github.com/r404r/mygonvim/internal/winlayout"
+)
 
 // All API calls run together on Neovim's main loop. winlayout supplies the
 // same ancestor walk as stl_connected in statusline.c, including T junctions.
@@ -56,6 +60,7 @@ func (s *Session) requestLayout() {
 // refreshLayouts has at most one RPC in flight and one coalesced refresh.
 // Keeping it separate from work lets recovery keys pass a pending Lua call.
 func (s *Session) refreshLayouts(publish func(*winlayout.Snapshot)) {
+	var previous *winlayout.Snapshot
 	for {
 		select {
 		case <-s.done:
@@ -73,11 +78,20 @@ func (s *Session) refreshLayouts(publish func(*winlayout.Snapshot)) {
 				return
 			default:
 			}
-			if err != nil {
-				publish(nil)
+			var next *winlayout.Snapshot
+			if err == nil {
+				next = &snapshot
+			}
+			if next == nil && previous == nil {
 				continue
 			}
-			publish(&snapshot)
+			if next != nil && previous != nil && next.Cols == previous.Cols &&
+				next.Rows == previous.Rows && next.CmdHeight == previous.CmdHeight &&
+				next.GlobalStatus == previous.GlobalStatus && slices.Equal(next.Windows, previous.Windows) {
+				continue
+			}
+			previous = next
+			publish(next)
 		}
 	}
 }
