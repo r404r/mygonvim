@@ -45,10 +45,11 @@ func startRealWheelWithClipboard(t *testing.T, file string, clipboard *nvimproc.
 	ed.wheel.GOOS = "darwin"
 	sess, err := nvimproc.Start(nvimproc.Options{
 		Bin: bin, Cols: 80, Rows: 24, Clipboard: clipboard,
-		Args:     append(append([]string{"--clean"}, nvimArgs...), file),
-		Env:      nvimproc.PortableEnv(os.Environ(), filepath.Join(t.TempDir(), "data")),
-		OnRedraw: func(u ...[]any) { ed.OnRedraw(u...) },
-		Logf:     t.Logf,
+		Args:           append(append([]string{"--clean"}, nvimArgs...), file),
+		Env:            nvimproc.PortableEnv(os.Environ(), filepath.Join(t.TempDir(), "data")),
+		OnRedraw:       func(u ...[]any) { ed.OnRedraw(u...) },
+		OnWindowLayout: ed.OnWindowLayout,
+		Logf:           t.Logf,
 	})
 	if err != nil {
 		t.Fatal(err)

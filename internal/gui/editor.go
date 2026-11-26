@@ -7,12 +7,14 @@ package gui
 
 import (
 	"sync"
+	"sync/atomic"
 
 	"github.com/egoist/mygo/ui"
 
 	"github.com/r404r/mygonvim/internal/fontcfg"
 	"github.com/r404r/mygonvim/internal/grid"
 	"github.com/r404r/mygonvim/internal/input"
+	"github.com/r404r/mygonvim/internal/winlayout"
 )
 
 // Backend is what the editor needs of Neovim. Its methods must not block: the
@@ -69,6 +71,7 @@ type Editor struct {
 	pointer input.Pointer
 	cfg     Config
 	hooks   Hooks
+	layout  atomic.Pointer[winlayout.Snapshot]
 
 	// The font sources: the -font flag and the defaults never change; the
 	// 'guifont' option arrives on Neovim's goroutine, under fontMu. Neovim's
@@ -82,20 +85,24 @@ type Editor struct {
 	fontDirty  bool
 
 	// Main thread only, below.
-	saved      fontcfg.Choice // the menu's choice
-	cur        fontcfg.Choice // what fonts were built from
-	fonts      [4]ui.Font     // by bold | italic<<1
-	metricsFor float32        // the scale cw, ch and base were measured at; 0 before the first
-	cw, ch     float32        // a cell, in DIPs, a whole number of pixels each way
-	base       float32        // the baseline's distance below a cell's top
-	asc, desc  float32
-	reqCols    int // the grid last asked of Neovim
-	reqRows    int
-	focused    bool
-	shaped     map[shapeKey][]ui.Glyph
-	scratch    []ui.Glyph
-	txt        []byte
-	cols       []int
+	saved          fontcfg.Choice // the menu's choice
+	cur            fontcfg.Choice // what fonts were built from
+	fonts          [4]ui.Font     // by bold | italic<<1
+	metricsFor     float32        // the scale cw, ch and base were measured at; 0 before the first
+	cw, ch         float32        // a cell, in DIPs, a whole number of pixels each way
+	base           float32        // the baseline's distance below a cell's top
+	asc, desc      float32
+	reqCols        int // the grid last asked of Neovim
+	reqRows        int
+	focused        bool
+	shaped         map[shapeKey][]ui.Glyph
+	scratch        []ui.Glyph
+	txt            []byte
+	cols           []int
+	hoverX, hoverY float32
+	hoverKnown     bool
+	hoverHeld      bool
+	hoverCursor    ui.Cursor
 }
 
 type shapeKey struct {
@@ -148,6 +155,12 @@ func (e *Editor) View(c *ui.Context) {
 	e.Model.Read(func(s *grid.State) { mode, curRow, curCol = s.Mode, s.CurRow, s.CurCol })
 
 	el := ui.Box(c).Fill().Focusable().FocusRing(false).Clip().AutoFocus().Label("Neovim")
+	if !e.hoverHeld {
+		e.hoverCursor = e.pointerCursor()
+	}
+	if e.hoverCursor != ui.CursorDefault {
+		el.Cursor(e.hoverCursor)
+	}
 	el.HandleInput(e.handle)
 	// The composition shows at the cursor, past the preedit's caret.
 	cw, ch := e.cw, e.ch
@@ -213,6 +226,20 @@ func (e *Editor) point(ev ui.InputEvent) bool {
 	if e.cw <= 0 || e.ch <= 0 {
 		return false
 	}
+	e.hoverX, e.hoverY, e.hoverKnown = ev.X, ev.Y, true
+	if ev.Kind == ui.InputPointerDown {
+		e.hoverCursor = e.pointerCursor()
+		e.hoverHeld = true
+	} else if ev.Kind == ui.InputPointerUp {
+		e.hoverHeld = false
+	}
+	if ev.Kind == ui.InputPointerMove && ev.Button == -1 {
+		e.hoverHeld = false
+		next := e.pointerCursor()
+		changed := next != e.hoverCursor
+		e.hoverCursor = next
+		return changed
+	}
 	cols, rows := e.Model.Size()
 	row, col := input.CellAt(ev.X, ev.Y, e.cw, e.ch, cols, rows)
 	var off bool
@@ -222,6 +249,36 @@ func (e *Editor) point(ev ui.InputEvent) bool {
 		e.be.Mouse(m.Button, m.Action, m.Modifier, m.Row, m.Col)
 	}
 	return taken
+}
+
+// OnWindowLayout caches geometry without calling Neovim on the UI thread.
+func (e *Editor) OnWindowLayout(snapshot *winlayout.Snapshot) {
+	e.layout.Store(snapshot)
+	if e.hooks.Invalidate != nil {
+		e.hooks.Invalidate()
+	}
+}
+
+func (e *Editor) pointerCursor() ui.Cursor {
+	if !e.hoverKnown || e.cw <= 0 || e.ch <= 0 || e.hoverX < 0 || e.hoverY < 0 {
+		return ui.CursorDefault
+	}
+	var off bool
+	e.Model.Read(func(s *grid.State) { off = s.MouseOff })
+	cols, rows := e.Model.Size()
+	s := e.layout.Load()
+	if off || s == nil || s.Cols != cols || s.Rows != rows {
+		return ui.CursorDefault
+	}
+	// Hover is not clamped: padding outside the grid is not a separator.
+	switch s.At(int(e.hoverY/e.ch), int(e.hoverX/e.cw)) {
+	case winlayout.Column:
+		return ui.CursorResizeColumn
+	case winlayout.Row:
+		return ui.CursorResizeRow
+	default:
+		return ui.CursorDefault
+	}
 }
 
 // scroll sends the wheel steps of a scroll event to the grid cell under the

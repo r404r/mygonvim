@@ -194,13 +194,14 @@ func start(opts options) (*nvimproc.Session, io.Closer) {
 	home, homeErr := os.UserHomeDir()
 	sess, err := nvimproc.Start(nvimproc.Options{
 		Bin: bin, Args: opts.files, Env: env, Cols: cfg.Cols, Rows: cfg.Rows,
-		Dir:       nvimStartDir(runtime.GOOS, cwd, cwdErr, home, homeErr),
-		InitCmds:  initCmds(saved),
-		Version:   displayedVersion(),
-		Clipboard: systemClipboard(),
-		OnRedraw:  ed.OnRedraw,
-		OnExit:    exitHandler(&quitting, mygo.App.Quit, log.Printf),
-		Logf:      log.Printf,
+		Dir:            nvimStartDir(runtime.GOOS, cwd, cwdErr, home, homeErr),
+		InitCmds:       initCmds(saved),
+		Version:        displayedVersion(),
+		Clipboard:      systemClipboard(),
+		OnRedraw:       ed.OnRedraw,
+		OnWindowLayout: ed.OnWindowLayout,
+		OnExit:         exitHandler(&quitting, mygo.App.Quit, log.Printf),
+		Logf:           log.Printf,
 	})
 	if err != nil {
 		return fail(err), logs
