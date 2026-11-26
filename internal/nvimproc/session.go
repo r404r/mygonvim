@@ -12,6 +12,8 @@ import (
 	"time"
 
 	"github.com/neovim/go-client/nvim"
+
+	"github.com/r404r/mygonvim/internal/winlayout"
 )
 
 // Options configures Start.
@@ -38,6 +40,9 @@ type Options struct {
 	// reader goroutine, in order. It must not call back into the Session
 	// synchronously for anything that waits for a reply.
 	OnRedraw func(updates ...[]any)
+	// OnWindowLayout publishes immutable geometry from a separate goroutine.
+	// Nil means the latest query failed. The callback must not block.
+	OnWindowLayout func(*winlayout.Snapshot)
 	// OnExit is called once, from its own goroutine, when nvim has exited
 	// or the connection was lost; err is nil on a clean exit.
 	OnExit func(err error)
@@ -64,12 +69,13 @@ type Session struct {
 	queue  []op
 	closed bool
 
-	stderr     *tailBuffer
-	done       chan struct{} // closed when the process has exited
-	logf       func(string, ...any)
-	callMu     sync.Mutex
-	recentCall string
-	clipboard  *clipboardProvider
+	stderr        *tailBuffer
+	done          chan struct{} // closed when the process has exited
+	logf          func(string, ...any)
+	callMu        sync.Mutex
+	recentCall    string
+	clipboard     *clipboardProvider
+	layoutRefresh chan struct{}
 }
 
 type opKind uint8
@@ -144,6 +150,9 @@ func Start(o Options) (*Session, error) {
 		return nil, err
 	}
 	s := &Session{nv: nv, cmd: cmd, stderr: stderr, done: make(chan struct{}), logf: logf}
+	if o.OnWindowLayout != nil {
+		s.layoutRefresh = make(chan struct{}, 1)
+	}
 	s.cond = sync.NewCond(&s.mu)
 	if o.Clipboard != nil {
 		s.clipboard = newClipboardProvider(*o.Clipboard, logf)
@@ -159,8 +168,20 @@ func Start(o Options) (*Session, error) {
 		cmd.Wait()
 		return nil, err
 	}
-	if o.OnRedraw != nil {
-		if err := nv.RegisterHandler("redraw", o.OnRedraw); err != nil {
+	if o.OnRedraw != nil || o.OnWindowLayout != nil {
+		if err := nv.RegisterHandler("redraw", func(updates ...[]any) {
+			if o.OnRedraw != nil {
+				o.OnRedraw(updates...)
+			}
+			if o.OnWindowLayout != nil {
+				for _, u := range updates {
+					if len(u) > 0 && u[0] == "flush" {
+						s.requestLayout()
+						break
+					}
+				}
+			}
+		}); err != nil {
 			s.kill()
 			cmd.Wait()
 			return nil, err
@@ -207,6 +228,10 @@ func Start(o Options) (*Session, error) {
 		return nil, fmt.Errorf("nvim_ui_attach: %w (nvim said: %q)", err, s.stderr.String())
 	}
 	go s.work()
+	if o.OnWindowLayout != nil {
+		s.requestLayout()
+		go s.refreshLayouts(o.OnWindowLayout)
+	}
 	return s, nil
 }
 

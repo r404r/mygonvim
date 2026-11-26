@@ -1,0 +1,265 @@
+package gui
+
+import (
+	"fmt"
+	"os"
+	"strings"
+	"sync/atomic"
+	"testing"
+
+	"github.com/egoist/mygo/ui"
+	"github.com/r404r/mygonvim/internal/nvimproc"
+	"github.com/r404r/mygonvim/internal/winlayout"
+)
+
+func TestRealNvimUnchangedLayoutDoesNotInvalidate(t *testing.T) {
+	bin := os.Getenv("NVIM_BIN")
+	if bin == "" {
+		var err error
+		if bin, err = nvimproc.Locate("", "", nil); err != nil {
+			t.Skip("no nvim: set NVIM_BIN or put nvim on PATH")
+		}
+	}
+	var invalidations, publications, flushes atomic.Int64
+	ed := NewEditor(nil, Config{Cols: 80, Rows: 24}, Hooks{
+		Invalidate: func() { invalidations.Add(1) },
+	})
+	sess, err := nvimproc.Start(nvimproc.Options{
+		Bin: bin, Cols: 80, Rows: 24,
+		Args: []string{"--clean", "--cmd", `lua local original = vim.fn.getwininfo; vim.g.layout_queries = 0; vim.fn.getwininfo = function(...) vim.g.layout_queries = vim.g.layout_queries + 1; return original(...) end`},
+		Env:  nvimproc.PortableEnv(os.Environ(), t.TempDir()),
+		// Count redraws separately to isolate frames requested by layout updates.
+		OnRedraw: func(updates ...[]any) {
+			for _, u := range updates {
+				if len(u) > 0 && u[0] == "flush" {
+					flushes.Add(1)
+				}
+			}
+		},
+		OnWindowLayout: func(s *winlayout.Snapshot) {
+			ed.OnWindowLayout(s)
+			publications.Add(1)
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	r := &realWheel{t: t, ed: ed, sess: sess}
+	r.wait("initial layout publication", func() bool { return publications.Load() > 0 })
+	for i := 0; i < 10; i++ {
+		beforeFlush, beforeQuery := flushes.Load(), r.eval("g:layout_queries")
+		if err := sess.Nvim().ExecLua(`vim.api.nvim_buf_set_lines(0, 0, 1, false, {string.rep('x', ...) }); vim.cmd('redraw')`, nil, i+1); err != nil {
+			t.Fatal(err)
+		}
+		r.wait("content redraw flush", func() bool { return flushes.Load() > beforeFlush })
+		r.wait("layout query after redraw", func() bool { return r.eval("g:layout_queries") > beforeQuery })
+	}
+	// Later queries prove earlier identical responses have been processed.
+	if got := publications.Load(); got != 1 {
+		t.Fatalf("unchanged geometry published %d times, want 1", got)
+	}
+	if got := invalidations.Load(); got != 1 {
+		t.Fatalf("unchanged geometry requested %d frames, want 1", got)
+	}
+	if err := sess.Nvim().Command("vsplit"); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("split layout publication", func() bool {
+		v := ed.layout.Load()
+		return v != nil && len(v.Windows) == 2 && publications.Load() == 2
+	})
+	if got := invalidations.Load(); got != 2 {
+		t.Fatalf("split requested %d frames, want 2", got)
+	}
+}
+
+func separatorHover(r *realWheel, row, col int, want ui.Cursor) {
+	r.t.Helper()
+	x, y := r.at(col, row)
+	r.tt.Move(x, y)
+	r.tt.Frame()
+	if got := r.tt.Cursor(); got != want {
+		r.t.Fatalf("cursor at (%d,%d)=%v, want %v", row, col, got, want)
+	}
+}
+
+func separatorDrag(r *realWheel, row, col, drow, dcol int) {
+	r.t.Helper()
+	x, y := r.at(col, row)
+	r.tt.Press(x, y)
+	pointerSync(r)
+	x, y = r.at(col+dcol, row+drow)
+	r.tt.Move(x, y)
+	pointerSync(r)
+	r.tt.Release(x, y)
+	pointerSync(r)
+}
+
+func TestRealNvimVerticalSeparatorCursorMatchesDrag(t *testing.T) {
+	r := startRealPointer(t, "-c", "set laststatus=3 | vsplit")
+	left := r.eval("win_getid(1)")
+	sep := r.eval("winwidth(1)")
+	r.wait("vertical geometry", func() bool { return r.ed.layout.Load().At(2, sep) == winlayout.Column })
+	if err := r.sess.Nvim().Command(`let g:hover_moves = 0 | set mousemoveevent | nnoremap <MouseMove> <Cmd>let g:hover_moves += 1<CR>`); err != nil {
+		t.Fatal(err)
+	}
+	separatorHover(r, 2, sep, ui.CursorResizeColumn)
+	separatorHover(r, 2, sep-1, ui.CursorDefault)
+	separatorHover(r, 2, sep+1, ui.CursorDefault)
+	pointerSync(r)
+	if r.eval("g:hover_moves") != 0 {
+		t.Fatal("hover was forwarded as MouseMove")
+	}
+	separatorHover(r, 2, sep, ui.CursorResizeColumn)
+	separatorDrag(r, 2, sep, 0, 3)
+	if got := r.eval(fmt.Sprintf("nvim_win_get_width(%d)", left)); got != sep+3 {
+		t.Fatalf("dragged width=%d, want %d", got, sep+3)
+	}
+	r.wait("geometry after drag", func() bool {
+		s := r.ed.layout.Load()
+		return s.At(2, sep) == winlayout.Default && s.At(2, sep+3) == winlayout.Column
+	})
+	separatorHover(r, 2, sep+3, ui.CursorResizeColumn)
+	if err := r.sess.Nvim().Command("only"); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("geometry after close", func() bool { return r.ed.layout.Load().At(2, sep+3) == winlayout.Default })
+	r.tt.Frame()
+	if r.tt.Cursor() != ui.CursorDefault {
+		t.Fatal("closed separator retained its cursor")
+	}
+}
+
+func TestRealNvimGlobalStatusHorizontalCursorMatchesDrag(t *testing.T) {
+	r := startRealPointer(t, "-c", "set laststatus=3 | split")
+	top := r.eval("win_getid(1)")
+	height := r.eval("winheight(1)")
+	row := r.eval("win_screenpos(2)[0]-2")
+	r.wait("horizontal geometry", func() bool { return r.ed.layout.Load().At(row, 4) == winlayout.Row })
+	separatorHover(r, row, 4, ui.CursorResizeRow)
+	separatorHover(r, row-1, 4, ui.CursorDefault)
+	separatorHover(r, row+1, 4, ui.CursorDefault)
+	separatorDrag(r, row, 4, 2, 0)
+	if got := r.eval(fmt.Sprintf("nvim_win_get_height(%d)", top)); got != height+2 {
+		t.Fatalf("dragged height=%d, want %d", got, height+2)
+	}
+	global := r.eval("&lines-&cmdheight-1")
+	separatorHover(r, global, 4, ui.CursorDefault)
+	heights := r.eval("winheight(1)*1000+winheight(2)")
+	// With cmdheight=1, dragging downward cannot change window heights.
+	separatorDrag(r, global, 4, 2, 0)
+	if got := r.eval("winheight(1)*1000+winheight(2)"); got != heights {
+		t.Fatalf("global statusline changed window heights: %d -> %d", heights, got)
+	}
+}
+
+func TestRealNvimSeparatorIgnoresTextFloatAndMouseOff(t *testing.T) {
+	r := startRealPointer(t, "-c", "set laststatus=3 | vsplit")
+	sep := r.eval("winwidth(1)")
+	if err := r.sess.Nvim().ExecLua(`vim.api.nvim_buf_set_lines(0,0,1,false,{'│─ text'})`, nil); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("separator characters in buffer text", func() bool { return strings.HasPrefix(r.row(0), "│─") })
+	r.wait("separator geometry", func() bool { return r.ed.layout.Load().At(2, sep) == winlayout.Column })
+	separatorHover(r, 0, 0, ui.CursorDefault)
+	separatorHover(r, 0, 1, ui.CursorDefault)
+	if err := r.sess.Nvim().ExecLua(`vim.api.nvim_open_win(vim.api.nvim_create_buf(false,true),false,
+	  {relative='editor',row=2,col=...,width=6,height=3,border='single'})`, nil, sep); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("floating border geometry", func() bool {
+		s := r.ed.layout.Load()
+		return len(s.Windows) == 3 && s.At(2, sep) == winlayout.Default
+	})
+	separatorHover(r, 2, sep, ui.CursorDefault)
+	separatorHover(r, 3, sep, ui.CursorDefault)
+	separatorHover(r, 7, sep, ui.CursorResizeColumn)
+	if err := r.sess.Nvim().Command("set mouse="); err != nil {
+		t.Fatal(err)
+	}
+	r.wait("mouse disabled", func() bool { return r.ed.pointerCursor() == ui.CursorDefault })
+	r.tt.Frame()
+	if r.tt.Cursor() != ui.CursorDefault {
+		t.Fatal("mouse disabled but resize cursor still visible")
+	}
+}
+
+func TestRealNvimSeparatorCursorAtFloatBorders(t *testing.T) {
+	for _, c := range []struct {
+		name                 string
+		horizontal           bool
+		rowOffset, colOffset int
+		cursor               ui.Cursor
+	}{
+		{"top border covers separator", true, 0, -2, ui.CursorDefault},
+		{"left border covers separator", false, -1, 0, ui.CursorDefault},
+		{"right border covers separator", false, -1, -7, ui.CursorDefault},
+		{"bottom border covers separator", true, -4, -2, ui.CursorDefault},
+		{"separator immediately above border", true, 1, -2, ui.CursorResizeRow},
+		{"separator immediately left of border", false, -1, 1, ui.CursorResizeColumn},
+		{"separator immediately right of border", false, -1, -8, ui.CursorResizeColumn},
+		{"separator immediately below border", true, -5, -2, ui.CursorResizeRow},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			split := "vsplit"
+			if c.horizontal {
+				split = "split"
+			}
+			r := startRealPointer(t, "-c", "set laststatus=3 | "+split)
+			row, col, kind := 3, r.eval("winwidth(1)"), winlayout.Column
+			if c.horizontal {
+				row, col, kind = r.eval("win_screenpos(2)[0]-2"), 6, winlayout.Row
+			}
+			r.wait("uncovered separator", func() bool { return r.ed.layout.Load().At(row, col) == kind })
+			floatRow, floatCol := row+c.rowOffset, col+c.colOffset
+			// The outer rectangle is eight columns by five rows, including
+			// the single-cell border around a six-column, three-row body.
+			if err := r.sess.Nvim().ExecLua(`local row, col = ...
+			  vim.api.nvim_open_win(vim.api.nvim_create_buf(false,true),false,
+			  {relative='editor',row=row,col=col,width=6,height=3,border='single'})`, nil, floatRow, floatCol); err != nil {
+				t.Fatal(err)
+			}
+			r.wait("floating window and rendered border", func() bool {
+				s := r.ed.layout.Load()
+				line := []rune(r.row(floatRow))
+				return s != nil && len(s.Windows) == 3 && len(line) > floatCol && line[floatCol] == '┌'
+			})
+			separatorHover(r, row, col, c.cursor)
+		})
+	}
+}
+
+func TestRealNvimSeparatorWinbarAndCorners(t *testing.T) {
+	for _, c := range []struct {
+		name, command string
+		cursor        ui.Cursor
+		kind          winlayout.Cursor
+		drow, dcol    int
+	}{
+		{"unconnected", "vsplit | split", ui.CursorResizeColumn, winlayout.Column, 0, 2},
+		{"connected", "split | vsplit", ui.CursorResizeRow, winlayout.Row, 2, 0},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r := startRealPointer(t)
+			if err := r.sess.Nvim().Command("set laststatus=2 winbar=bar | " + c.command); err != nil {
+				t.Fatal(err)
+			}
+			id := r.eval("win_getid(1)")
+			col := r.eval("winwidth(1)")
+			row := r.eval("getwininfo(win_getid(1))[0].height + getwininfo(win_getid(1))[0].winbar")
+			height := r.eval(fmt.Sprintf("nvim_win_get_height(%d)", id))
+			r.wait("corner geometry", func() bool { return r.ed.layout.Load().At(row, col) == c.kind })
+			separatorHover(r, 0, col, ui.CursorDefault) // winbar is not a separator
+			separatorHover(r, 1, col, ui.CursorResizeColumn)
+			separatorHover(r, row, col, c.cursor)
+			separatorDrag(r, row, col, c.drow, c.dcol)
+			if got := r.eval(fmt.Sprintf("nvim_win_get_width(%d)", id)); got != col+c.dcol {
+				t.Fatalf("corner drag width=%d, want %d", got, col+c.dcol)
+			}
+			if got := r.eval(fmt.Sprintf("nvim_win_get_height(%d)", id)); got != height+c.drow {
+				t.Fatalf("corner drag height=%d, want %d", got, height+c.drow)
+			}
+		})
+	}
+}
