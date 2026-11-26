@@ -35,6 +35,7 @@ for _, id in ipairs(vim.api.nvim_tabpage_list_wins(0)) do
         if type(v) == 'table' then v = v[1] end
         return v and v ~= '' and 1 or 0
       end
+      -- getwininfo already uses the outer origin; only dimensions exclude borders.
       w.Width = w.Width + edge(4) + edge(8)
       w.Height = w.Height + w.Winbar + edge(2) + edge(6)
       w.Winbar = 0

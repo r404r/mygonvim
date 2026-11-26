@@ -120,6 +120,51 @@ func TestRealNvimSeparatorIgnoresTextFloatAndMouseOff(t *testing.T) {
 	}
 }
 
+func TestRealNvimSeparatorCursorAtFloatBorders(t *testing.T) {
+	for _, c := range []struct {
+		name                 string
+		horizontal           bool
+		rowOffset, colOffset int
+		cursor               ui.Cursor
+	}{
+		{"top border covers separator", true, 0, -2, ui.CursorDefault},
+		{"left border covers separator", false, -1, 0, ui.CursorDefault},
+		{"right border covers separator", false, -1, -7, ui.CursorDefault},
+		{"bottom border covers separator", true, -4, -2, ui.CursorDefault},
+		{"separator immediately above border", true, 1, -2, ui.CursorResizeRow},
+		{"separator immediately left of border", false, -1, 1, ui.CursorResizeColumn},
+		{"separator immediately right of border", false, -1, -8, ui.CursorResizeColumn},
+		{"separator immediately below border", true, -5, -2, ui.CursorResizeRow},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			split := "vsplit"
+			if c.horizontal {
+				split = "split"
+			}
+			r := startRealPointer(t, "-c", "set laststatus=3 | "+split)
+			row, col, kind := 3, r.eval("winwidth(1)"), winlayout.Column
+			if c.horizontal {
+				row, col, kind = r.eval("win_screenpos(2)[0]-2"), 6, winlayout.Row
+			}
+			r.wait("uncovered separator", func() bool { return r.ed.layout.Load().At(row, col) == kind })
+			floatRow, floatCol := row+c.rowOffset, col+c.colOffset
+			// The outer rectangle is eight columns by five rows, including
+			// the single-cell border around a six-column, three-row body.
+			if err := r.sess.Nvim().ExecLua(`local row, col = ...
+			  vim.api.nvim_open_win(vim.api.nvim_create_buf(false,true),false,
+			  {relative='editor',row=row,col=col,width=6,height=3,border='single'})`, nil, floatRow, floatCol); err != nil {
+				t.Fatal(err)
+			}
+			r.wait("floating window and rendered border", func() bool {
+				s := r.ed.layout.Load()
+				line := []rune(r.row(floatRow))
+				return s != nil && len(s.Windows) == 3 && len(line) > floatCol && line[floatCol] == '┌'
+			})
+			separatorHover(r, row, col, c.cursor)
+		})
+	}
+}
+
 func TestRealNvimSeparatorWinbarAndCorners(t *testing.T) {
 	for _, c := range []struct {
 		name, command string
