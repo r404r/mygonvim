@@ -11,6 +11,7 @@ import (
 
 	"github.com/egoist/mygo/ui"
 
+	"github.com/r404r/mygonvim/internal/fluent"
 	"github.com/r404r/mygonvim/internal/fontcfg"
 	"github.com/r404r/mygonvim/internal/grid"
 	"github.com/r404r/mygonvim/internal/input"
@@ -32,6 +33,8 @@ type Backend interface {
 
 // Config is the editor's look.
 type Config struct {
+	// Chrome is non-nil only for a Windows 11 editor window.
+	Chrome *fluent.TitleBar
 	// FontFamily is a family list as ui.Font takes it, e.g. "Menlo, monospace".
 	// It is what the -font flag gave, "" for none. Neovim's guifont option and
 	// the font saved from the menu come before it (see fontcfg.Resolve).
@@ -59,6 +62,8 @@ type Hooks struct {
 	SaveFont func(fontcfg.Choice)
 	// PasteClipboard queues a native read and paste without blocking the UI.
 	PasteClipboard func()
+	// ApplyAppearance follows Neovim's background option on the main thread.
+	ApplyAppearance func(background string)
 }
 
 // Editor is the view of one Neovim. Create it with NewEditor, give View to the
@@ -85,24 +90,25 @@ type Editor struct {
 	fontDirty  bool
 
 	// Main thread only, below.
-	saved          fontcfg.Choice // the menu's choice
-	cur            fontcfg.Choice // what fonts were built from
-	fonts          [4]ui.Font     // by bold | italic<<1
-	metricsFor     float32        // the scale cw, ch and base were measured at; 0 before the first
-	cw, ch         float32        // a cell, in DIPs, a whole number of pixels each way
-	base           float32        // the baseline's distance below a cell's top
-	asc, desc      float32
-	reqCols        int // the grid last asked of Neovim
-	reqRows        int
-	focused        bool
-	shaped         map[shapeKey][]ui.Glyph
-	scratch        []ui.Glyph
-	txt            []byte
-	cols           []int
-	hoverX, hoverY float32
-	hoverKnown     bool
-	hoverHeld      bool
-	hoverCursor    ui.Cursor
+	saved             fontcfg.Choice // the menu's choice
+	cur               fontcfg.Choice // what fonts were built from
+	fonts             [4]ui.Font     // by bold | italic<<1
+	metricsFor        float32        // the scale cw, ch and base were measured at; 0 before the first
+	cw, ch            float32        // a cell, in DIPs, a whole number of pixels each way
+	base              float32        // the baseline's distance below a cell's top
+	asc, desc         float32
+	reqCols           int // the grid last asked of Neovim
+	reqRows           int
+	focused           bool
+	shaped            map[shapeKey][]ui.Glyph
+	scratch           []ui.Glyph
+	txt               []byte
+	cols              []int
+	hoverX, hoverY    float32
+	hoverKnown        bool
+	hoverHeld         bool
+	hoverCursor       ui.Cursor
+	backgroundVersion uint64
 }
 
 type shapeKey struct {
@@ -142,7 +148,7 @@ func (e *Editor) OnRedraw(updates ...[]any) {
 		e.Model.Read(func(s *grid.State) { v = s.GuiFont })
 		e.setGuiFont(v)
 	}
-	if (res.Flushed || res.GuiFontChanged) && e.hooks.Invalidate != nil {
+	if (res.Flushed || res.GuiFontChanged || res.BackgroundChanged) && e.hooks.Invalidate != nil {
 		e.hooks.Invalidate()
 	}
 }
@@ -150,11 +156,34 @@ func (e *Editor) OnRedraw(updates ...[]any) {
 // View builds the editor's element: one focusable box that draws the grid, takes
 // every key, and tells the system where the cursor is for input methods.
 func (e *Editor) View(c *ui.Context) {
+	if e.cfg.Chrome != nil {
+		var background string
+		var version uint64
+		e.Model.Read(func(s *grid.State) { background, version = s.Background, s.BackgroundVersion })
+		if version != e.backgroundVersion {
+			e.backgroundVersion = version
+			if e.hooks.ApplyAppearance != nil {
+				e.hooks.ApplyAppearance(background)
+			}
+		}
+		ui.Column(c).Fill().Children(func() {
+			closed := e.cfg.Chrome.View(c)
+			e.content(c, closed)
+		})
+		return
+	}
+	e.content(c, false)
+}
+
+func (e *Editor) content(c *ui.Context, restoreFocus bool) {
 	var mode string
 	var curRow, curCol int
 	e.Model.Read(func(s *grid.State) { mode, curRow, curCol = s.Mode, s.CurRow, s.CurCol })
 
 	el := ui.Box(c).Fill().Focusable().FocusRing(false).Clip().AutoFocus().Label("Neovim")
+	if restoreFocus {
+		el.Focus()
+	}
 	if !e.hoverHeld {
 		e.hoverCursor = e.pointerCursor()
 	}
@@ -179,6 +208,20 @@ func (e *Editor) View(c *ui.Context) {
 
 // handle is the box's HandleInput.
 func (e *Editor) handle(ev ui.InputEvent) bool {
+	if e.cfg.Chrome != nil {
+		if (ev.Kind == ui.InputKeyDown || ev.Kind == ui.InputKeyUp) && ev.Key == ui.KeyUnknown &&
+			(ev.Code == ui.CodeAltLeft || ev.Code == ui.CodeAltRight) && ev.Mods&(ui.Ctrl|ui.Super) == 0 {
+			return true
+		}
+		if ev.Kind == ui.InputKeyDown && ev.Mods == ui.Ctrl|ui.Shift {
+			switch ev.Key {
+			case ui.KeyC:
+				return e.EditCommand("copy")
+			case ui.KeyV:
+				return e.EditCommand("paste")
+			}
+		}
+	}
 	if ev.Kind == ui.InputCommand {
 		return e.EditCommand(ev.Text)
 	}

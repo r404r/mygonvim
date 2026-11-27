@@ -25,6 +25,7 @@ import (
 
 	"github.com/r404r/mygonvim/internal/about"
 	"github.com/r404r/mygonvim/internal/appmenu"
+	"github.com/r404r/mygonvim/internal/fluent"
 	"github.com/r404r/mygonvim/internal/fontcfg"
 	"github.com/r404r/mygonvim/internal/grid"
 	"github.com/r404r/mygonvim/internal/gui"
@@ -224,6 +225,10 @@ func start(opts options) (*startup, io.Closer) {
 	}
 
 	cfg := gui.Config{FontFamily: opts.font, FontSize: float32(opts.fontSize), SavedFont: saved, Cols: 100, Rows: 32}
+	fluentChrome := fluent.UseChrome(runtime.GOOS, fluent.WindowsBuild())
+	if fluentChrome {
+		cfg.Chrome = &fluent.TitleBar{}
+	}
 	var win atomic.Pointer[mygo.Window]
 	var menu *mygo.Menu
 	var fontMenu *appmenu.FontMenu
@@ -256,6 +261,11 @@ func start(opts options) (*startup, io.Closer) {
 				w.SetTitle(t)
 			}
 		},
+		ApplyAppearance: func(background string) {
+			if w := win.Load(); w != nil {
+				fluent.ApplyAppearance(background, mygo.Theme.SetSource, w.SetWindowButtonsTheme)
+			}
+		},
 	})
 
 	var quitting atomic.Bool
@@ -264,14 +274,14 @@ func start(opts options) (*startup, io.Closer) {
 	ctx, cancel := context.WithCancel(context.Background())
 	running := &startup{cancel: cancel, done: make(chan struct{}), late: late}
 
-	w := mygo.NewWindow(mygo.WindowOptions{
+	w := mygo.NewWindow(fluent.ConfigureWindow(mygo.WindowOptions{
 		Title:     appTitle,
 		Width:     opts.width,
 		Height:    opts.height,
 		MinWidth:  320,
 		MinHeight: 200,
 		Content:   ui.View(ed.View),
-	})
+	}, fluentChrome))
 	// Closing the window asks Neovim to quit, which may ask about unsaved
 	// changes on its command line; the window closes when nvim has exited.
 	w.OnClose(func(e *mygo.CloseEvent) {
@@ -296,6 +306,7 @@ func start(opts options) (*startup, io.Closer) {
 	}
 	process := about.Process{Version: displayedVersion(), Portable: portable, Settings: settingsPath, Log: logPath, LoginEnv: "Pending"}
 	aboutWindow := newAbout(w, process, lateLuaClient{late})
+	aboutWindow.Fluent = fluentChrome
 	menu = mygo.NewMenu(appmenu.Template(runtime.GOOS, appmenu.Actions{
 		Font:  fontMenu,
 		About: aboutWindow.Open,
@@ -309,7 +320,10 @@ func start(opts options) (*startup, io.Closer) {
 		Quit: mygo.App.Quit,
 		Edit: func(command string) { ed.EditCommand(command) },
 	}))
-	mygo.App.SetMenu(menu)
+	if cfg.Chrome != nil {
+		cfg.Chrome.Items, cfg.Chrome.Window = menu.Items(), w
+	}
+	fluent.InstallMenu(fluentChrome, menu, mygo.App.SetMenu)
 	// Files dropped from Finder or Explorer open in Neovim.
 	w.OnFileDrop(func(e *mygo.FileDropEvent) { ed.OpenFiles(e.Paths) })
 	win.Store(w)

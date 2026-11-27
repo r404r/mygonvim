@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/egoist/mygo/ui"
+	"github.com/r404r/mygonvim/internal/fluent"
 )
 
 type Window interface {
@@ -17,6 +18,7 @@ type Window interface {
 type Factory func(view func(*ui.Context), closed func()) Window
 
 type Controller struct {
+	Fluent    bool
 	Process   Process
 	Icon      ui.ImageSource
 	Query     func(context.Context) (Info, error)
@@ -28,6 +30,7 @@ type Controller struct {
 }
 
 type viewModel struct {
+	fluent       bool
 	process      Process
 	icon         ui.ImageSource
 	paths        []Path
@@ -64,7 +67,7 @@ func (c *Controller) Open() {
 		c.window.Focus()
 		return
 	}
-	m := &viewModel{process: c.Process, icon: c.Icon, nvim: "Loading…", services: c.Services, dispatch: c.Dispatch}
+	m := &viewModel{fluent: c.Fluent, process: c.Process, icon: c.Icon, nvim: "Loading…", services: c.Services, dispatch: c.Dispatch}
 	loading := Info{Errors: map[string]string{}}
 	for _, key := range []string{"config", "data", "state", "cache"} {
 		loading.Errors[key] = "Loading…"
@@ -136,8 +139,8 @@ func (m *viewModel) view(c *ui.Context) {
 			})
 		})
 		ui.Row(c).Gap(10).Children(func() {
-			ui.Button(c, "GitHub").OnClick(func() { m.link(Website) })
-			ui.Button(c, "License").OnClick(func() { m.link(LicenseURL) })
+			m.button(c, "GitHub").OnClick(func() { m.link(Website) })
+			m.button(c, "License").OnClick(func() { m.link(LicenseURL) })
 		})
 		ui.Text(c, Website).Selectable()
 		portable := "No"
@@ -167,9 +170,9 @@ func (m *viewModel) view(c *ui.Context) {
 						ui.Text(c, value).FillWidth().Selectable()
 						if p.Value != "" {
 							ui.Row(c).Gap(8).Children(func() {
-								ui.Button(c, "Copy").OnClick(func() { m.act("copy", p) })
-								ui.Button(c, "Show in folder").OnClick(func() { m.act("reveal", p) })
-								ui.Button(c, "Open directory").OnClick(func() { m.act("open", p) })
+								m.button(c, "Copy").OnClick(func() { m.act("copy", p) })
+								m.button(c, "Show in folder").OnClick(func() { m.act("reveal", p) })
+								m.button(c, "Open directory").OnClick(func() { m.act("open", p) })
 							})
 						}
 					})
@@ -178,4 +181,12 @@ func (m *viewModel) view(c *ui.Context) {
 		})
 		ui.Text(c, m.status).FillWidth().Selectable()
 	})
+}
+
+func (m *viewModel) button(c *ui.Context, label string) ui.Element {
+	b := ui.Button(c, label)
+	if m.fluent {
+		fluent.StyleButton(c, b)
+	}
+	return b
 }

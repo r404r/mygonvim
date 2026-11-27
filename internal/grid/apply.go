@@ -9,7 +9,8 @@ type Result struct {
 	Resized      bool
 	// GuiFontChanged: Neovim set the guifont option to a value other than
 	// the one State.GuiFont had.
-	GuiFontChanged bool
+	GuiFontChanged    bool
+	BackgroundChanged bool
 	// Bell: Neovim rang the (visual) bell.
 	Bell bool
 }
@@ -113,6 +114,13 @@ func (s *State) event(name string, args []any, res *Result) {
 			if v != s.GuiFont {
 				s.GuiFont = v
 				res.GuiFontChanged = true
+			}
+		}
+		if name, _ := args[0].(string); name == "background" {
+			if v, ok := args[1].(string); ok && v != s.Background {
+				s.Background = v
+				s.BackgroundVersion++
+				res.BackgroundChanged = true
 			}
 		}
 	case "mouse_on":
