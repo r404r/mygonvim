@@ -14,6 +14,7 @@ type Window interface {
 	Focus()
 	Restore()
 	Invalidate()
+	Close()
 }
 type Factory func(view func(*ui.Context), closed func()) Window
 
@@ -38,6 +39,7 @@ type viewModel struct {
 	services     Services
 	dispatch     func(func())
 	invalidate   func()
+	close        func()
 }
 
 // UpdateProcess runs on the UI thread, including while About is already open.
@@ -77,6 +79,7 @@ func (c *Controller) Open() {
 	w := c.NewWindow(m.view, func() { c.window = nil; c.model = nil })
 	c.window = w
 	m.invalidate = w.Invalidate
+	m.close = w.Close
 	process := c.Process
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -127,6 +130,7 @@ func (m *viewModel) link(url string) {
 }
 
 func (m *viewModel) view(c *ui.Context) {
+	c.OnWindowShortcut(0, ui.KeyEscape, m.close)
 	ui.Column(c).Fill().Padding(20).Gap(10).Children(func() {
 		ui.Row(c).Gap(16).Children(func() {
 			if m.icon != nil {

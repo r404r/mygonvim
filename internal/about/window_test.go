@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +15,7 @@ import (
 
 type testWindow struct {
 	shown, focused, restored, invalidated int
+	closed                                int
 	close                                 func()
 }
 
@@ -21,6 +23,12 @@ func (w *testWindow) Show()       { w.shown++ }
 func (w *testWindow) Focus()      { w.focused++ }
 func (w *testWindow) Restore()    { w.restored++ }
 func (w *testWindow) Invalidate() { w.invalidated++ }
+func (w *testWindow) Close() {
+	w.closed++
+	if w.close != nil {
+		w.close()
+	}
+}
 
 func nextUI(t *testing.T, queue <-chan func()) {
 	t.Helper()
@@ -29,6 +37,126 @@ func nextUI(t *testing.T, queue <-chan func()) {
 		f()
 	case <-time.After(3 * time.Second):
 		t.Fatal("UI update never arrived")
+	}
+}
+
+func TestWindowEscapeClosesAndReopens(t *testing.T) {
+	for _, fluent := range []bool{false, true} {
+		t.Run(map[bool]string{false: "native", true: "fluent"}[fluent], func(t *testing.T) {
+			updates := make(chan func(), 2)
+			var windows []*testWindow
+			var view func(*ui.Context)
+			c := &Controller{Fluent: fluent, Dispatch: func(f func()) { updates <- f },
+				Query: func(context.Context) (Info, error) { return Info{Version: "0.12.6"}, nil },
+				NewWindow: func(v func(*ui.Context), closed func()) Window {
+					view = v
+					w := &testWindow{close: closed}
+					windows = append(windows, w)
+					return w
+				},
+			}
+			c.Open()
+			nextUI(t, updates)
+			tt := ui.NewTester(view, 720, 780)
+			tt.Frame()
+			for _, key := range []struct {
+				mods ui.Modifiers
+				key  ui.Key
+			}{{0, ui.KeyF1}, {ui.Ctrl, ui.KeyW}, {ui.Cmd, ui.KeyW}, {ui.Shift, ui.KeyEscape}} {
+				tt.Key(key.mods, key.key)
+			}
+			tt.Frame()
+			if windows[0].closed != 0 || c.window != windows[0] {
+				t.Fatal("a key other than unmodified Escape closed About")
+			}
+			// A button holding keyboard focus must not hide the window shortcut.
+			tt.Key(0, ui.KeyTab)
+			tt.Key(0, ui.KeyEscape)
+			if windows[0].closed != 1 || c.window != nil || c.model != nil {
+				t.Fatal("Escape did not close the window and clear About state")
+			}
+			c.Open()
+			nextUI(t, updates)
+			if len(windows) != 2 || c.window != windows[1] || windows[1] == windows[0] {
+				t.Fatal("reopening About did not create a new window")
+			}
+			windows[1].Close()
+		})
+	}
+}
+
+func TestWindowEscapeWhileLoadingDiscardsLateQuery(t *testing.T) {
+	for _, reopen := range []bool{false, true} {
+		t.Run(map[bool]string{false: "closed", true: "reopened"}[reopen], func(t *testing.T) {
+			updates := make(chan func(), 2)
+			requests := make(chan chan Info, 2)
+			var windows []*testWindow
+			var view func(*ui.Context)
+			c := &Controller{Dispatch: func(f func()) { updates <- f },
+				Query: func(ctx context.Context) (Info, error) {
+					reply := make(chan Info, 1)
+					requests <- reply
+					select {
+					case info := <-reply:
+						return info, nil
+					case <-ctx.Done():
+						return Info{}, ctx.Err()
+					}
+				},
+				NewWindow: func(v func(*ui.Context), closed func()) Window {
+					view = v
+					w := &testWindow{close: closed}
+					windows = append(windows, w)
+					return w
+				},
+			}
+			nextRequest := func() chan Info {
+				t.Helper()
+				select {
+				case reply := <-requests:
+					return reply
+				case <-time.After(3 * time.Second):
+					t.Fatal("About query never started")
+					return nil
+				}
+			}
+			c.Open()
+			oldReply := nextRequest()
+			oldModel := c.model
+			oldPaths := append([]Path(nil), oldModel.paths...)
+			tt := ui.NewTester(view, 720, 780)
+			tt.Frame()
+			if !tt.HasText("Neovim: Loading…") {
+				t.Fatal("query was not pending when Escape was pressed")
+			}
+			tt.Key(0, ui.KeyEscape)
+			if windows[0].closed != 1 || c.window != nil || c.model != nil {
+				t.Fatal("Escape did not close About while loading")
+			}
+			var newReply chan Info
+			if reopen {
+				c.Open()
+				newReply = nextRequest()
+			}
+			oldReply <- Info{Version: "stale"}
+			nextUI(t, updates)
+			if windows[0].invalidated != 0 || oldModel.nvim != "Loading…" || !reflect.DeepEqual(oldModel.paths, oldPaths) {
+				t.Fatal("late query updated the closed window")
+			}
+			if reopen {
+				if c.model == oldModel || c.model.nvim != "Loading…" || windows[1].invalidated != 0 {
+					t.Fatal("old query updated the new window")
+				}
+				newReply <- Info{Version: "current"}
+				nextUI(t, updates)
+				if c.model.nvim != "current" || windows[1].invalidated != 1 {
+					t.Fatal("new window did not receive its own query result")
+				}
+				windows[1].Close()
+			} else if c.window != nil || c.model != nil {
+				t.Fatal("late query restored closed About state")
+			}
+		})
 	}
 }
 
