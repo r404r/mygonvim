@@ -36,6 +36,7 @@ func (*aboutMenuWindow) Show()                     {}
 func (*aboutMenuWindow) Focus()                    {}
 func (*aboutMenuWindow) Restore()                  {}
 func (*aboutMenuWindow) Invalidate()               {}
+func (w *aboutMenuWindow) Close()                  { w.closed() }
 func (w *aboutMenuWindow) SetMenu(menu *mygo.Menu) { w.menu = menu }
 func (w *aboutMenuWindow) OnClosed(closed func()) func() {
 	w.closed = closed
@@ -64,7 +65,7 @@ func TestAboutWindowOverridesInheritedMenu(t *testing.T) {
 	if w.closed == nil {
 		t.Fatal("About close callback was not registered")
 	}
-	w.closed()
+	w.Close()
 	if !closed {
 		t.Fatal("About close callback was not called")
 	}
