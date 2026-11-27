@@ -36,6 +36,7 @@ func (b *TitleBar) View(c *ui.Context) bool {
 	if paint, color := titleBarFill(c.Vibrancy(), c.Preferences().ReduceTransparency, c.Theme().Dark); paint {
 		row.Background(color)
 	}
+	titleFocused := false
 	row.Children(func() {
 		buttons := make([]ui.Element, len(b.Items))
 		anyOpen := false
@@ -66,13 +67,14 @@ func (b *TitleBar) View(c *ui.Context) bool {
 			button := buttons[i]
 			button.PopoverMenuButton(func(m *ui.Menu) { b.menu(m, item.Submenu) }, ui.PopoverMenuButtonOptions{Open: &b.open[i]})
 			StyleButton(c, button)
+			titleFocused = titleFocused || button.Focused()
 		}
 	})
 	open := false
 	for _, on := range b.open {
 		open = open || on
 	}
-	closed := b.hadMenu && !open
+	closed := (b.hadMenu || titleFocused) && !open
 	b.hadMenu = open
 	return closed
 }

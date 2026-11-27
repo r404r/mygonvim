@@ -15,8 +15,9 @@ import (
 func fluentEnv(t *testing.T) *env {
 	t.Helper()
 	e := &env{be: &fake{}}
-	bar := &fluent.TitleBar{Items: appmenu.Template("windows", appmenu.Actions{})}
+	bar := &fluent.TitleBar{Items: appmenu.Template("windows", appmenu.Actions{Font: &appmenu.FontMenu{Families: []string{"monospace"}, Sizes: []float32{14}}})}
 	e.ed = NewEditor(e.be, Config{FontFamily: "monospace", FontSize: 14, Cols: 80, Rows: 24, Chrome: bar}, Hooks{})
+	e.ed.tr.GOOS = "windows"
 	tt := ui.NewTester(e.ed.View, 800, 480)
 	e.tt = tt
 	tt.SetTitleBar(ui.TitleBar{Height: 32, Right: 138})
@@ -92,7 +93,7 @@ func TestFluentAltF10AndClipboard(t *testing.T) {
 }
 
 func TestFluentMenuCloseRestoresEditorFocus(t *testing.T) {
-	for _, method := range []string{"choice", "escape", "outside", "switch"} {
+	for _, method := range []string{"choice", "click", "enter", "escape", "outside", "outside-title", "switch"} {
 		t.Run(method, func(t *testing.T) {
 			e := fluentEnv(t)
 			pastes := 0
@@ -105,18 +106,35 @@ func TestFluentMenuCloseRestoresEditorFocus(t *testing.T) {
 				if err := e.tt.ChooseMenuItem("Open…"); err != nil {
 					t.Fatal(err)
 				}
+			case "click":
+				if err := e.tt.Click("Open…"); err != nil {
+					t.Fatal(err)
+				}
+			case "enter":
+				e.tt.Key(0, ui.KeyDown)
+				e.tt.Key(0, ui.KeyEnter)
 			case "escape":
 				e.tt.Key(0, ui.KeyEscape)
 			case "outside":
 				e.tt.ClickAt(500, 300)
+			case "outside-title":
+				e.tt.ClickAt(500, 16)
 			case "switch":
 				r, _ := e.tt.Find("Edit")
 				e.tt.Move(r.X+r.W/2, r.Y+r.H/2)
-				e.tt.Key(0, ui.KeyEscape)
+				if e.tt.Focused("Neovim") || e.tt.Focused("File") || !reflect.DeepEqual(e.tt.Menu(), []string{"Copy", "Paste"}) {
+					t.Fatal("switched menu did not own focus")
+				}
+				e.tt.ClickAt(500, 300)
 			}
 			e.tt.Frame()
 			if !e.tt.Focused("Neovim") {
 				t.Fatal("editor did not regain focus")
+			}
+			for _, title := range []string{"File", "Edit", "Font", "Help"} {
+				if e.tt.Focused(title) {
+					t.Fatal("title retained focus: " + title)
+				}
 			}
 			e.tt.TypeKey(0, ui.KeyI, "i")
 			e.tt.Key(0, ui.KeyF10)
