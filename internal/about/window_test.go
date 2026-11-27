@@ -111,6 +111,38 @@ func TestQueryFailureStillShowsWindowAndUnavailableFields(t *testing.T) {
 	}
 }
 
+func TestLoginEnvironmentStatusUpdatesWhileQueryIsPending(t *testing.T) {
+	updates := make(chan func(), 1)
+	release := make(chan struct{})
+	var view func(*ui.Context)
+	c := &Controller{Process: Process{LoginEnv: "Pending"}, Dispatch: func(f func()) { updates <- f },
+		Query:     func(context.Context) (Info, error) { <-release; return Info{Version: "0.12.6"}, nil },
+		NewWindow: func(v func(*ui.Context), _ func()) Window { view = v; return &testWindow{} },
+	}
+	c.Open()
+	tt := ui.NewTester(view, 720, 780)
+	tt.Frame()
+	if !tt.HasText("Login shell environment: Pending") {
+		t.Fatal("pending status missing")
+	}
+	c.UpdateProcess(Process{LoginEnv: "Imported", Nvim: "/selected/nvim"})
+	tt.Frame()
+	if !tt.HasText("Login shell environment: Imported") || !tt.HasText("/selected/nvim") {
+		t.Fatal("completion did not update open About")
+	}
+	close(release)
+	nextUI(t, updates)
+	tt.Frame()
+	if !tt.HasText("Login shell environment: Imported") || !tt.HasText("/selected/nvim") {
+		t.Fatal("old query snapshot overwrote startup result")
+	}
+	c.UpdateProcess(Process{LoginEnv: "Fallback: timeout"})
+	tt.Frame()
+	if !tt.HasText("Login shell environment: Fallback: timeout") {
+		t.Fatal("fallback status missing")
+	}
+}
+
 func TestViewFieldsPortableModeLongPathsAndLinks(t *testing.T) {
 	for _, portable := range []bool{false, true} {
 		t.Run(map[bool]string{false: "normal", true: "portable"}[portable], func(t *testing.T) {

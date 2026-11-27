@@ -106,6 +106,12 @@ type mouseOp struct {
 
 // Start runs nvim --embed and attaches this program as its UI.
 func Start(o Options) (*Session, error) {
+	return StartContext(context.Background(), o)
+}
+
+// StartContext also lets a closing window cancel the initial RPC handshake.
+// The context remains associated with the child for its entire lifetime.
+func StartContext(ctx context.Context, o Options) (*Session, error) {
 	if o.Bin == "" {
 		return nil, errors.New("nvimproc: no nvim executable")
 	}
@@ -123,7 +129,7 @@ func Start(o Options) (*Session, error) {
 		args = append(args, "--cmd", c)
 	}
 	args = append(args, o.Args...)
-	cmd := exec.Command(o.Bin, args...)
+	cmd := exec.CommandContext(ctx, o.Bin, args...)
 	cmd.Env = o.Env
 	if cmd.Env == nil {
 		cmd.Env = os.Environ()

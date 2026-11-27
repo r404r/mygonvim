@@ -16,6 +16,7 @@ type Process struct {
 	Version             string
 	Portable            bool
 	Settings, Log, Nvim string
+	LoginEnv            string
 }
 
 type Info struct {

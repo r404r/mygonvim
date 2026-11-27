@@ -37,6 +37,25 @@ type viewModel struct {
 	invalidate   func()
 }
 
+// UpdateProcess runs on the UI thread, including while About is already open.
+func (c *Controller) UpdateProcess(p Process) {
+	c.Process = p
+	if m := c.model; m != nil {
+		m.process = p
+		for i := range m.paths {
+			switch m.paths[i].Label {
+			case "settings.json":
+				m.paths[i].Value = p.Settings
+			case "mygonvim.log":
+				m.paths[i].Value = p.Log
+			case "Neovim executable":
+				m.paths[i].Value = p.Nvim
+			}
+		}
+		m.invalidate()
+	}
+}
+
 // Open is called on the UI thread. It never waits for Neovim.
 func (c *Controller) Open() {
 	if c.window != nil {
@@ -55,6 +74,7 @@ func (c *Controller) Open() {
 	w := c.NewWindow(m.view, func() { c.window = nil; c.model = nil })
 	c.window = w
 	m.invalidate = w.Invalidate
+	process := c.Process
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -65,7 +85,7 @@ func (c *Controller) Open() {
 				info.Errors[key] = err.Error()
 			}
 		}
-		paths := Paths(c.Process, info, os.Stat)
+		paths := Paths(process, info, os.Stat)
 		c.Dispatch(func() {
 			if c.model != m {
 				return
@@ -78,7 +98,7 @@ func (c *Controller) Open() {
 				}
 			}
 			m.paths = paths
-			w.Invalidate()
+			c.UpdateProcess(c.Process)
 		})
 	}()
 }
@@ -125,6 +145,7 @@ func (m *viewModel) view(c *ui.Context) {
 			portable = "Yes"
 		}
 		ui.Text(c, "Portable mode: "+portable)
+		ui.Text(c, "Login shell environment: "+m.process.LoginEnv).FillWidth().Selectable()
 		ui.Text(c, "Neovim: "+m.nvim).FillWidth().Selectable()
 		ui.Scroll(c).FillWidth().Grow(1).Children(func() {
 			ui.Column(c).FillWidth().Gap(14).Children(func() {

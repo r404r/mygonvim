@@ -78,7 +78,17 @@ usage: mygonvim [flags] [file ...]
 
 File > Exit 和应用程序的 Quit（退出）动作使用同一条确认路径。在操作系统注销或关机期间，MyGo 会忽略对窗口关闭事件的取消；应用程序不能为了这次提示而把窗口保持打开。结束操作系统会话之前请先保存工作。原生的关闭手势仍需要在 macOS 和 Windows 上测试。
 
-### 日志
+### macOS 登录 shell 环境
+
+默认情况下，macOS 启动的父进程为 launchd（PID 1）、且 stdout 不是终端时，会导入登录 shell 导出的环境。这涵盖访达 / Dock 启动；终端直接执行通常沿用继承的环境。先开窗口，导入结束后再启动 Neovim。shell 依次取 `$SHELL`、账户的 `UserShell`、`/bin/zsh`；只接受可执行的绝对路径，文件名须为 `zsh` 或 `bash`。每次启动执行一次 `-l -i -c`，stdin 为 null 设备，工作目录为主目录。不把环境快照缓存到磁盘。
+
+PATH 先放 shell 条目，再追加继承环境独有的条目并去重；查找 Neovim 也使用这个 PATH。便携 `XDG_*` 路径与继承的 `MYGONVIM_*` 控制保持生效。非便携模式中，shell 设置的 `XDG_CONFIG_HOME` 或 `NVIM_APPNAME` 可能选择另一套 Neovim 配置。shell 的 `unset` 不删除继承的变量。不设置或导入 `TERM`，`:checkhealth` 的 Terminal 一节仍可能报告缺失。
+
+在应用的 `settings.json` 设置 `"loginEnv": false`，或启动时设置 `MYGONVIM_LOGIN_ENV=0` 即可关闭。`MYGONVIM_LOGIN_ENV=1` 覆盖设置和启动判定（也允许在 Linux 上显式运行 Unix 诊断探测）。继承了 `MYGONVIM_LOGIN_ENV_PROBE` 时始终禁止再次探测，即使强制 `=1`；探测进程将其设为 `1`，供 shell 启动文件跳过重活。Windows 不执行探测。About 显示 Pending、Imported、Skipped 或 Fallback 及其原因。
+
+超时（5 秒）、不支持的 shell、格式错误或不完整的输出、输出超过 1 MiB 时，回退到继承环境，不弹导入错误对话框。探测日志只记计数、耗时、退出状态与 shell 文件名，不记变量值或 shell 原始输出；`MYGONVIM_LOGIN_ENV_DEBUG=1` 才额外记变量名。导出的凭据会传给 Neovim 及其子进程，与终端启动相同；每次探测都会执行启动文件。不支持 fish 等其他 shell；direnv 这类提示符 / 目录钩子可能不执行，bash 登录 profile 若需要 `.bashrc` 的设置须主动 source。终端中后台化、重定向 stdout 后父进程变为 PID 1 的进程可能被误判而重复导入。访达 / Dock 行为与启动耗时仍待 macOS 真机测试。
+
+### 日志输出
 
 RPC 请求失败和 `nvim_error_event` 通知会写到 MyGo 应用程序日志目录（`PathLogs`）中的 `mygonvim.log`。在便携模式下，路径是 `data/mygonvim/logs/mygonvim.log`。当 stderr 可用时，日志也会写到 stderr。下一次写入将超过 1 MiB 时，日志从头开始写。启动时会清掉已经过大的现有日志。如果无法打开日志文件，日志继续写到 stderr。错误事件包含其类型和消息；最近一次调用名只是提示，并不能确定是哪一个请求失败。
 
