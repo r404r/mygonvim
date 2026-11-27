@@ -17,11 +17,20 @@ type startup struct {
 }
 
 func (s *startup) Close() {
+	s.late.discard()
 	s.cancel()
 	<-s.done
 	if sess := s.late.be.Load(); sess != nil {
 		sess.Close()
 	}
+}
+
+// Show the replacement before closing the editor: closing the last native
+// window first would quit the application before it could show the error.
+func startupFailure(late *lateBackend, err error, show func(error), closeEditor func()) {
+	late.discard()
+	show(err)
+	closeEditor()
 }
 
 func prepareEnvironment(ctx context.Context, opts loginenv.Options, portableDir string) loginenv.Result {

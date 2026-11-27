@@ -72,27 +72,78 @@ type lateBackend struct {
 	be         atomic.Pointer[nvimproc.Session]
 	mu         sync.Mutex
 	cols, rows int
-	commands   []string
+	pending    []pendingInput
+	bytes      int
+	failed     bool
+	overflow   bool
 }
 
-func (l *lateBackend) attach(s *nvimproc.Session) {
+const maxPendingBytes = 1 << 20
+const maxPendingInputs = 1024
+
+type pendingInput struct {
+	kind byte
+	text string
+}
+
+func (o pendingInput) send(s *nvimproc.Session) {
+	switch o.kind {
+	case 'i':
+		s.Input(o.text)
+	case 'p':
+		s.Paste(o.text)
+	case 'c':
+		s.Command(o.text)
+	}
+}
+
+func (l *lateBackend) attach(s *nvimproc.Session) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if l.failed {
+		return false
+	}
 	l.be.Store(s)
 	if l.cols > 0 && l.rows > 0 {
 		s.Resize(l.cols, l.rows)
 	}
-	for _, command := range l.commands {
-		s.Command(command)
+	for _, input := range l.pending {
+		input.send(s)
 	}
-	l.commands = nil
+	l.pending, l.bytes = nil, 0
+	return true
 }
 
-func (l *lateBackend) Input(k string) {
-	if s := l.be.Load(); s != nil {
-		s.Input(k)
+func (l *lateBackend) send(kind byte, text string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.failed || text == "" {
+		return
 	}
+	input := pendingInput{kind, text}
+	if s := l.be.Load(); s != nil {
+		input.send(s)
+		return
+	}
+	if len(text) > maxPendingBytes-l.bytes || len(l.pending) >= maxPendingInputs {
+		if !l.overflow {
+			log.Printf("startup: pending input limit reached; ignoring excess input")
+			l.overflow = true
+		}
+		return
+	}
+	l.pending = append(l.pending, input)
+	l.bytes += len(text)
 }
+
+func (l *lateBackend) discard() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.failed = true
+	l.pending, l.bytes = nil, 0
+}
+
+func (l *lateBackend) Input(k string) { l.send('i', k) }
 func (l *lateBackend) Resize(c, r int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -107,19 +158,11 @@ func (l *lateBackend) Mouse(button, action, modifier string, row, col int) {
 	}
 }
 func (l *lateBackend) Command(c string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if s := l.be.Load(); s != nil {
-		s.Command(c)
-	} else {
-		l.commands = append(l.commands, c)
-	}
+	l.send('c', c)
 }
 
 func (l *lateBackend) Paste(text string) {
-	if s := l.be.Load(); s != nil {
-		s.Paste(text)
-	}
+	l.send('p', text)
 }
 func (l *lateBackend) Copy() {
 	if s := l.be.Load(); s != nil {
@@ -238,7 +281,13 @@ func start(opts options) (*startup, io.Closer) {
 			cancel()
 		}
 	})
-	w.OnClosed(cancel)
+	w.OnClosed(func() { late.discard(); cancel() })
+	failed := func(err error) {
+		startupFailure(late, err, func(err error) {
+			mygo.App.SetMenu(mygo.NewMenu(nil))
+			fail(err)
+		}, func() { win.Store(nil); w.Destroy() })
+	}
 	cur := ed.Font()
 	fontMenu = &appmenu.FontMenu{
 		Families: appmenu.MonospacedFamilies(ui.FontFamilies()), Sizes: appmenu.DefaultSizes,
@@ -296,24 +345,26 @@ func start(opts options) (*startup, io.Closer) {
 			process.Nvim, process.LoginEnv = bin, result.Status
 			aboutWindow.UpdateProcess(process)
 			if err != nil {
-				fail(err)
+				failed(err)
 			}
 		})
 		if ctx.Err() != nil || err != nil {
 			return
 		}
-		var sess *nvimproc.Session
-		if err == nil {
-			sess, err = nvimproc.StartContext(ctx, nvimproc.Options{
-				Bin: bin, Args: opts.files, Env: result.Env, Cols: cfg.Cols, Rows: cfg.Rows,
-				Dir: nvimStartDir(runtime.GOOS, cwd, cwdErr, home, homeErr), InitCmds: initCmds(saved),
-				Version: displayedVersion(), Clipboard: clip, OnRedraw: ed.OnRedraw,
-				OnWindowLayout: ed.OnWindowLayout, OnExit: exitHandler(&quitting, mygo.App.Quit, log.Printf), Logf: log.Printf,
-			})
-		}
+		sess, err := nvimproc.StartContext(ctx, nvimproc.Options{
+			Bin: bin, Args: opts.files, Env: result.Env, Cols: cfg.Cols, Rows: cfg.Rows,
+			Dir: nvimStartDir(runtime.GOOS, cwd, cwdErr, home, homeErr), InitCmds: initCmds(saved),
+			Version: displayedVersion(), Clipboard: clip, OnRedraw: ed.OnRedraw,
+			OnWindowLayout: ed.OnWindowLayout, OnExit: func(err error) {
+				// A failed handshake must leave its error window available.
+				<-running.done
+				if late.be.Load() != nil {
+					exitHandler(&quitting, mygo.App.Quit, log.Printf)(err)
+				}
+			}, Logf: log.Printf,
+		})
 		if sess != nil {
-			late.attach(sess)
-			if ctx.Err() != nil {
+			if ctx.Err() != nil || !late.attach(sess) {
 				sess.Close()
 				return
 			}
@@ -331,7 +382,7 @@ func start(opts options) (*startup, io.Closer) {
 				return
 			}
 			if err != nil {
-				fail(err)
+				failed(err)
 			}
 		})
 	}()
@@ -358,7 +409,7 @@ func initCmds(saved fontcfg.Choice) []string {
 
 // fail shows why the editor cannot start: a GUI program started from a menu has
 // no console to print to.
-func fail(err error) *nvimproc.Session {
+func fail(err error) {
 	log.Println(err)
 	mygo.NewWindow(mygo.WindowOptions{
 		Title: appTitle, Width: 560, Height: 220,
@@ -369,5 +420,4 @@ func fail(err error) *nvimproc.Session {
 			})
 		}),
 	})
-	return nil
 }

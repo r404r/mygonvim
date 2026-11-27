@@ -44,11 +44,11 @@ func (c *Controller) UpdateProcess(p Process) {
 		m.process = p
 		for i := range m.paths {
 			switch m.paths[i].Label {
-			case "settings.json":
+			case settingsLabel:
 				m.paths[i].Value = p.Settings
-			case "mygonvim.log":
+			case logLabel:
 				m.paths[i].Value = p.Log
-			case "Neovim executable":
+			case nvimLabel:
 				m.paths[i].Value = p.Nvim
 			}
 		}

@@ -8,8 +8,11 @@ import (
 )
 
 const (
-	Website    = "https://github.com/r404r/mygonvim"
-	LicenseURL = Website + "/blob/main/LICENSE"
+	Website       = "https://github.com/r404r/mygonvim"
+	LicenseURL    = Website + "/blob/main/LICENSE"
+	settingsLabel = "settings.json"
+	logLabel      = "mygonvim.log"
+	nvimLabel     = "Neovim executable"
 )
 
 type Process struct {
@@ -31,7 +34,7 @@ type Path struct {
 
 // Paths lists only locations reported by this process and its running Neovim.
 func Paths(p Process, info Info, stat func(string) (os.FileInfo, error)) []Path {
-	out := []Path{{Label: "settings.json", Value: p.Settings}, {Label: "mygonvim.log", Value: p.Log}, {Label: "Neovim executable", Value: p.Nvim}}
+	out := []Path{{Label: settingsLabel, Value: p.Settings}, {Label: logLabel, Value: p.Log}, {Label: nvimLabel, Value: p.Nvim}}
 	for _, name := range []string{"config", "data", "state", "cache"} {
 		out = append(out, Path{Label: "Neovim " + name, Value: info.Paths[name], Error: info.Errors[name]})
 		if name == "config" && info.Paths[name] != "" {
