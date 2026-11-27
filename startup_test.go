@@ -96,21 +96,27 @@ func TestStartupCloseCancelsAndJoinsWorker(t *testing.T) {
 }
 
 func TestLateBackendReplaysLatestResize(t *testing.T) {
-	sess := startTestNvim(t)
 	late := &lateBackend{}
 	late.Resize(90, 30)
+	sess, err := late.startSession(context.Background(), nvimproc.Options{Bin: testNvimBin(t), Args: []string{"--clean", "-n"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sess.Close()
+	// A change between the initial UI attachment and backend publication must
+	// still reach Neovim before any queued input.
 	late.Resize(123, 41)
-	late.Command("let g:startup_queued = 42")
+	late.Command("let g:startup_queued = [&columns, &lines]")
 	if !late.attach(sess) {
 		t.Fatal("session not attached")
 	}
 	deadline := time.Now().Add(3 * time.Second)
 	for {
 		var size []int
-		if err := sess.Nvim().ExecLua("return {vim.o.columns, vim.o.lines, vim.g.startup_queued or 0}", &size); err != nil {
+		if err := sess.Nvim().ExecLua("return vim.g.startup_queued or {}", &size); err != nil {
 			t.Fatal(err)
 		}
-		if reflect.DeepEqual(size, []int{123, 41, 42}) {
+		if reflect.DeepEqual(size, []int{123, 41}) {
 			break
 		}
 		if time.Now().After(deadline) {

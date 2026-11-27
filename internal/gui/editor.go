@@ -43,8 +43,8 @@ type Config struct {
 	FontSize float32
 	// SavedFont is the font chosen in the menu earlier, if any.
 	SavedFont fontcfg.Choice
-	// Cols and Rows are the grid Neovim attached with, before the first frame
-	// measures the window.
+	// Cols and Rows size the blank model before the first frame measures the
+	// window. That frame always reports its grid to the backend.
 	Cols, Rows int
 }
 
@@ -123,7 +123,6 @@ func NewEditor(be Backend, cfg Config, hooks Hooks) *Editor {
 	}
 	e := &Editor{
 		Model: grid.New(cfg.Cols, cfg.Rows), be: be, tr: input.New(), wheel: input.NewWheel(), cfg: cfg, hooks: hooks,
-		reqCols: cfg.Cols, reqRows: cfg.Rows,
 		shaped: map[shapeKey][]ui.Glyph{},
 		flag:   fontcfg.Choice{Family: cfg.FontFamily, Size: max(cfg.FontSize, 0)},
 		def:    fontcfg.Choice{Family: DefaultFontFamily, Size: 14},
