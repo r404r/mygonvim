@@ -36,7 +36,7 @@
 
 ## ビルド済みバイナリ
 
-`mygo.json` のバージョンは `0.0.10` です。そのバージョンと一致する `v*` タグを push すると [`.github/workflows/release.yml`](.github/workflows/release.yml) が実行され、macOS arm64 と amd64 の `.app` zip および `.dmg`、それに Windows amd64 のポータブル zip（空の `data/` フォルダを含み、Neovim は同梱しません）を、**下書き**の GitHub Release に添付します。v0.0.1、v0.0.2、v0.0.3、v0.0.4 の Release は、引き続き未公開の下書きです。
+`mygo.json` のバージョンは `0.0.10` です。そのバージョンと一致する `v*` タグを push すると [`.github/workflows/release.yml`](.github/workflows/release.yml) が実行され、macOS arm64 と amd64 の `.app` zip および `.dmg`、それに Windows amd64 のポータブル zip（空の `data/` フォルダを含み、Neovim は同梱しません）を、**下書き**の GitHub Release に添付します。すべてのタグに公開済みの Release があるわけではありません。公開済みのバージョンは、このリポジトリの [Releases ページ](https://github.com/r404r/mygonvim/releases)で確認できます。
 
 これらのビルドは署名されていません。macOS アプリはアドホック署名で、公証されていません。他の Mac では Gatekeeper がブロックする可能性が高いです。ビルドは macOS 13.0 を最小バージョンとして宣言しています（`mygo.json` の `macos.minimumSystemVersion`）。
 
