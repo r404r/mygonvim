@@ -91,6 +91,9 @@ type State struct {
 	MouseOff bool
 	// GuiFont is the value of the guifont option, "" until Neovim sets it.
 	GuiFont string
+	// Background is the option, distinct from cell highlight colors.
+	Background        string
+	BackgroundVersion uint64
 	// Flushes counts "flush" events, which end a batch of updates.
 	Flushes uint64
 }
