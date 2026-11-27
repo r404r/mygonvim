@@ -36,7 +36,7 @@
 
 ## 预构建版本
 
-`mygo.json` 的版本是 `0.0.10`。推送与该版本匹配的 `v*` 标签会运行 [`.github/workflows/release.yml`](.github/workflows/release.yml)，把 macOS arm64 与 amd64 的 `.app` zip 和 `.dmg`，以及 Windows amd64 便携 zip（包含一个空的 `data/` 文件夹；不捆绑 Neovim），附加到**草稿** GitHub Release。v0.0.1、v0.0.2、v0.0.3 和 v0.0.4 仍是未公开的草稿。
+`mygo.json` 的版本是 `0.0.10`。推送与该版本匹配的 `v*` 标签会运行 [`.github/workflows/release.yml`](.github/workflows/release.yml)，把 macOS arm64 与 amd64 的 `.app` zip 和 `.dmg`，以及 Windows amd64 便携 zip（包含一个空的 `data/` 文件夹；不捆绑 Neovim），附加到**草稿** GitHub Release。并非每个标签都有公开的 Release；已公开的版本以本仓库的 [Releases 页面](https://github.com/r404r/mygonvim/releases)为准。
 
 这些构建没有签名。macOS 应用是 ad hoc 签名，且未经公证；Gatekeeper 很可能会在其他 Mac 上拦截它们。构建声明的最低系统是 macOS 13.0（`mygo.json` 中的 `macos.minimumSystemVersion`）。
 

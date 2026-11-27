@@ -36,7 +36,7 @@ It runs `nvim --embed`, keeps Neovim's cell grid in memory, and draws it cell by
 
 ## Prebuilt builds
 
-`mygo.json` is version `0.0.10`. Pushing a `v*` tag that matches that version runs [`.github/workflows/release.yml`](.github/workflows/release.yml), which attaches macOS arm64 and amd64 `.app` zips and `.dmg` files, and a Windows amd64 portable zip (an empty `data/` folder included; Neovim is not bundled), to a **draft** GitHub Release. The v0.0.1, v0.0.2, v0.0.3 and v0.0.4 releases remain unpublished drafts.
+`mygo.json` is version `0.0.10`. Pushing a `v*` tag that matches that version runs [`.github/workflows/release.yml`](.github/workflows/release.yml), which attaches macOS arm64 and amd64 `.app` zips and `.dmg` files, and a Windows amd64 portable zip (an empty `data/` folder included; Neovim is not bundled), to a **draft** GitHub Release. Not every tag has a public release; see the [Releases page](https://github.com/r404r/mygonvim/releases) for published versions.
 
 Those builds are unsigned. The macOS apps are ad hoc signed and not notarized; Gatekeeper will likely block them on other Macs. The builds declare macOS 13.0 as the minimum (`macos.minimumSystemVersion` in `mygo.json`).
 
