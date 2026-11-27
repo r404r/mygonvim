@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 )
 
 // BinaryName is the nvim executable's file name on this system.
@@ -56,11 +57,55 @@ func Candidates(goos, flagPath, envPath string, dirs []string) []string {
 // explicit -nvim or $MYGONVIM_NVIM that does not exist is an error, not a
 // reason to look elsewhere.
 func Locate(flagPath, envPath string, dirs []string) (string, error) {
-	path, err := locate(runtime.GOOS, flagPath, envPath, dirs, fileExists, exec.LookPath)
+	return locateAbsolute(flagPath, envPath, dirs, exec.LookPath)
+}
+
+// LocateIn searches the child's PATH without changing the GUI's environment.
+// Windows retains its existing executable and PATHEXT lookup behavior.
+func LocateIn(flagPath, envPath string, dirs, env []string) (string, error) {
+	if runtime.GOOS == "windows" {
+		return Locate(flagPath, envPath, dirs)
+	}
+	path := ""
+	for _, item := range env {
+		if value, ok := strings.CutPrefix(item, "PATH="); ok {
+			path = value
+		}
+	}
+	if path == os.Getenv("PATH") {
+		return Locate(flagPath, envPath, dirs)
+	}
+	return locateAbsolute(flagPath, envPath, dirs, func(name string) (string, error) { return lookPathIn(name, path) })
+}
+
+func locateAbsolute(flagPath, envPath string, dirs []string, look func(string) (string, error)) (string, error) {
+	path, err := locate(runtime.GOOS, flagPath, envPath, dirs, fileExists, look)
 	if err != nil {
 		return "", err
 	}
 	return filepath.Abs(path)
+}
+
+func lookPathIn(name, path string) (string, error) {
+	if strings.ContainsRune(name, '/') {
+		return exec.LookPath(name)
+	}
+	for _, dir := range filepath.SplitList(path) {
+		if dir == "" {
+			dir = "."
+		}
+		candidate := filepath.Join(dir, name)
+		if !filepath.IsAbs(candidate) && !strings.HasPrefix(candidate, "./") {
+			candidate = "./" + candidate
+		}
+		if p, err := exec.LookPath(candidate); err == nil {
+			if !filepath.IsAbs(p) {
+				return p, &exec.Error{Name: name, Err: exec.ErrDot}
+			}
+			return p, nil
+		}
+	}
+	return "", &exec.Error{Name: name, Err: exec.ErrNotFound}
 }
 
 func locate(goos, flagPath, envPath string, dirs []string, exists func(string) bool, lookPath func(string) (string, error)) (string, error) {

@@ -7,14 +7,17 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"sync/atomic"
 
 	"github.com/egoist/mygo"
@@ -25,6 +28,7 @@ import (
 	"github.com/r404r/mygonvim/internal/fontcfg"
 	"github.com/r404r/mygonvim/internal/grid"
 	"github.com/r404r/mygonvim/internal/gui"
+	"github.com/r404r/mygonvim/internal/loginenv"
 	"github.com/r404r/mygonvim/internal/nvimproc"
 )
 
@@ -47,14 +51,14 @@ func main() {
 		return
 	}
 	mygo.App.SetVersion(displayedVersion())
-	var sess *nvimproc.Session
+	var running *startup
 	var logs io.Closer
-	mygo.App.WhenReady(func() { sess, logs = start(opts) })
+	mygo.App.WhenReady(func() { running, logs = start(opts) })
 	if err := mygo.App.Run(); err != nil {
 		log.Fatal(err)
 	}
-	if sess != nil {
-		sess.Close()
+	if running != nil {
+		running.Close()
 	}
 	if logs != nil {
 		log.SetOutput(os.Stderr)
@@ -65,15 +69,85 @@ func main() {
 // lateBackend lets the editor exist before the session does: the editor needs a
 // Backend, the session needs the editor's OnRedraw.
 type lateBackend struct {
-	be atomic.Pointer[nvimproc.Session]
+	be         atomic.Pointer[nvimproc.Session]
+	mu         sync.Mutex
+	cols, rows int
+	pending    []pendingInput
+	bytes      int
+	failed     bool
+	overflow   bool
 }
 
-func (l *lateBackend) Input(k string) {
-	if s := l.be.Load(); s != nil {
-		s.Input(k)
+const maxPendingBytes = 1 << 20
+const maxPendingInputs = 1024
+
+type pendingInput struct {
+	kind byte
+	text string
+}
+
+func (o pendingInput) send(s *nvimproc.Session) {
+	switch o.kind {
+	case 'i':
+		s.Input(o.text)
+	case 'p':
+		s.Paste(o.text)
+	case 'c':
+		s.Command(o.text)
 	}
 }
+
+func (l *lateBackend) attach(s *nvimproc.Session) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.failed {
+		return false
+	}
+	l.be.Store(s)
+	if l.cols > 0 && l.rows > 0 {
+		s.Resize(l.cols, l.rows)
+	}
+	for _, input := range l.pending {
+		input.send(s)
+	}
+	l.pending, l.bytes = nil, 0
+	return true
+}
+
+func (l *lateBackend) send(kind byte, text string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.failed || text == "" {
+		return
+	}
+	input := pendingInput{kind, text}
+	if s := l.be.Load(); s != nil {
+		input.send(s)
+		return
+	}
+	if len(text) > maxPendingBytes-l.bytes || len(l.pending) >= maxPendingInputs {
+		if !l.overflow {
+			log.Printf("startup: pending input limit reached; ignoring excess input")
+			l.overflow = true
+		}
+		return
+	}
+	l.pending = append(l.pending, input)
+	l.bytes += len(text)
+}
+
+func (l *lateBackend) discard() {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.failed = true
+	l.pending, l.bytes = nil, 0
+}
+
+func (l *lateBackend) Input(k string) { l.send('i', k) }
 func (l *lateBackend) Resize(c, r int) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.cols, l.rows = c, r
 	if s := l.be.Load(); s != nil {
 		s.Resize(c, r)
 	}
@@ -84,15 +158,11 @@ func (l *lateBackend) Mouse(button, action, modifier string, row, col int) {
 	}
 }
 func (l *lateBackend) Command(c string) {
-	if s := l.be.Load(); s != nil {
-		s.Command(c)
-	}
+	l.send('c', c)
 }
 
 func (l *lateBackend) Paste(text string) {
-	if s := l.be.Load(); s != nil {
-		s.Paste(text)
-	}
+	l.send('p', text)
 }
 func (l *lateBackend) Copy() {
 	if s := l.be.Load(); s != nil {
@@ -105,9 +175,9 @@ func (l *lateBackend) Cut() {
 	}
 }
 
-// start finds nvim, runs it, and opens the window. It runs on the main thread
-// once the app is ready.
-func start(opts options) (*nvimproc.Session, io.Closer) {
+// start opens the editor on the main thread before collecting the login
+// environment. The worker then locates and starts Neovim.
+func start(opts options) (*startup, io.Closer) {
 	exe, _ := os.Executable()
 	exeDir := filepath.Dir(exe)
 	dirs := []string{exeDir}
@@ -119,12 +189,14 @@ func start(opts options) (*nvimproc.Session, io.Closer) {
 	// data, state and cache, and the app's own, beside it.
 	env := os.Environ()
 	portable := false
+	portableDir := ""
 	if data, ok := nvimproc.PortableDir(exeDir); ok {
 		portable = true
+		portableDir = data
 		if err := nvimproc.EnsurePortableDirs(data); err != nil {
-			return fail(err), nil
+			fail(err)
+			return nil, nil
 		}
-		env = nvimproc.PortableEnv(env, data)
 		app := filepath.Join(data, "mygonvim")
 		mygo.App.SetPath(mygo.PathUserData, app)
 		mygo.App.SetPath(mygo.PathCache, filepath.Join(data, "cache", "mygonvim"))
@@ -135,11 +207,6 @@ func start(opts options) (*nvimproc.Session, io.Closer) {
 	logPath := ""
 	if f, ok := logs.(interface{ Path() string }); ok {
 		logPath = f.Path()
-	}
-	bin, err := nvimproc.Locate(opts.nvim, os.Getenv("MYGONVIM_NVIM"), dirs)
-	logStartup(displayedVersion(), portable, bin, logPath)
-	if err != nil {
-		return fail(err), logs
 	}
 
 	// The font chosen in the menu last time, in settings.json of the user data
@@ -194,30 +261,8 @@ func start(opts options) (*nvimproc.Session, io.Closer) {
 	var quitting atomic.Bool
 	cwd, cwdErr := os.Getwd()
 	home, homeErr := os.UserHomeDir()
-	sess, err := nvimproc.Start(nvimproc.Options{
-		Bin: bin, Args: opts.files, Env: env, Cols: cfg.Cols, Rows: cfg.Rows,
-		Dir:            nvimStartDir(runtime.GOOS, cwd, cwdErr, home, homeErr),
-		InitCmds:       initCmds(saved),
-		Version:        displayedVersion(),
-		Clipboard:      systemClipboard(),
-		OnRedraw:       ed.OnRedraw,
-		OnWindowLayout: ed.OnWindowLayout,
-		OnExit:         exitHandler(&quitting, mygo.App.Quit, log.Printf),
-		Logf:           log.Printf,
-	})
-	if err != nil {
-		return fail(err), logs
-	}
-	late.be.Store(sess)
-	// Neovim 0.12 gives 'guifont' a default font list. It is not the user's
-	// choice: the editor treats a 'guifont' equal to it as empty.
-	go func() {
-		def, err := sess.OptionDefault("guifont")
-		if err != nil {
-			log.Printf("default guifont: %v", err)
-		}
-		ed.SetDefaultGuiFont(def)
-	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	running := &startup{cancel: cancel, done: make(chan struct{}), late: late}
 
 	w := mygo.NewWindow(mygo.WindowOptions{
 		Title:     appTitle,
@@ -229,14 +274,28 @@ func start(opts options) (*nvimproc.Session, io.Closer) {
 	})
 	// Closing the window asks Neovim to quit, which may ask about unsaved
 	// changes on its command line; the window closes when nvim has exited.
-	w.OnClose(closeHandler(&quitting, sess.Command))
+	w.OnClose(func(e *mygo.CloseEvent) {
+		if sess := late.be.Load(); sess != nil {
+			closeHandler(&quitting, sess.Command)(e)
+		} else {
+			cancel()
+		}
+	})
+	w.OnClosed(func() { late.discard(); cancel() })
+	failed := func(err error) {
+		startupFailure(late, err, func(err error) {
+			mygo.App.SetMenu(mygo.NewMenu(nil))
+			fail(err)
+		}, func() { win.Store(nil); w.Destroy() })
+	}
 	cur := ed.Font()
 	fontMenu = &appmenu.FontMenu{
 		Families: appmenu.MonospacedFamilies(ui.FontFamilies()), Sizes: appmenu.DefaultSizes,
 		Family: fontcfg.FirstFamily(cur.Family), Size: cur.Size,
 		SetFamily: ed.ChooseFamily, SetSize: ed.ChooseSize,
 	}
-	aboutWindow := newAbout(w, about.Process{Version: displayedVersion(), Portable: portable, Settings: settingsPath, Log: logPath, Nvim: bin}, sess.Nvim())
+	process := about.Process{Version: displayedVersion(), Portable: portable, Settings: settingsPath, Log: logPath, LoginEnv: "Pending"}
+	aboutWindow := newAbout(w, process, lateLuaClient{late})
 	menu = mygo.NewMenu(appmenu.Template(runtime.GOOS, appmenu.Actions{
 		Font:  fontMenu,
 		About: aboutWindow.Open,
@@ -260,7 +319,74 @@ func start(opts options) (*nvimproc.Session, io.Closer) {
 		w.SetTitle(title)
 	}
 	w.Invalidate()
-	return sess, logs
+	clip := systemClipboard()
+	go func() {
+		defer close(running.done)
+		username := ""
+		if current, err := user.Current(); err == nil {
+			username = current.Username
+		}
+		result := prepareEnvironment(ctx, loginenv.Options{
+			Inputs: loginenv.Inputs{GOOS: runtime.GOOS, Parent: os.Getppid(), StdoutTTY: loginenv.StdoutTTY(), Env: env, SettingsOff: loginenv.SettingsOff(settingsPath)},
+			Home:   home, Username: username, Logf: log.Printf,
+		}, portableDir)
+		if ctx.Err() != nil {
+			return
+		}
+		bin, err := nvimproc.LocateIn(opts.nvim, os.Getenv("MYGONVIM_NVIM"), dirs, result.Env)
+		logStartup(displayedVersion(), portable, bin, logPath)
+		if ctx.Err() != nil {
+			return
+		}
+		mygo.RunOnMain(func() {
+			if ctx.Err() != nil {
+				return
+			}
+			process.Nvim, process.LoginEnv = bin, result.Status
+			aboutWindow.UpdateProcess(process)
+			if err != nil {
+				failed(err)
+			}
+		})
+		if ctx.Err() != nil || err != nil {
+			return
+		}
+		sess, err := nvimproc.StartContext(ctx, nvimproc.Options{
+			Bin: bin, Args: opts.files, Env: result.Env, Cols: cfg.Cols, Rows: cfg.Rows,
+			Dir: nvimStartDir(runtime.GOOS, cwd, cwdErr, home, homeErr), InitCmds: initCmds(saved),
+			Version: displayedVersion(), Clipboard: clip, OnRedraw: ed.OnRedraw,
+			OnWindowLayout: ed.OnWindowLayout, OnExit: func(err error) {
+				// A failed handshake must leave its error window available.
+				<-running.done
+				if late.be.Load() != nil {
+					exitHandler(&quitting, mygo.App.Quit, log.Printf)(err)
+				}
+			}, Logf: log.Printf,
+		})
+		if sess != nil {
+			if ctx.Err() != nil || !late.attach(sess) {
+				sess.Close()
+				return
+			}
+			// Ignore Neovim's platform default font until the user chooses one.
+			go func() {
+				def, err := sess.OptionDefault("guifont")
+				if err != nil {
+					log.Printf("default guifont: %v", err)
+				}
+				ed.SetDefaultGuiFont(def)
+			}()
+		}
+		mygo.RunOnMain(func() {
+			if ctx.Err() != nil {
+				return
+			}
+			if err != nil {
+				failed(err)
+			}
+		})
+	}()
+	return running, logs
 }
 
 // nvimStartDir uses the home directory for macOS launches from /, as in Finder.
@@ -283,7 +409,7 @@ func initCmds(saved fontcfg.Choice) []string {
 
 // fail shows why the editor cannot start: a GUI program started from a menu has
 // no console to print to.
-func fail(err error) *nvimproc.Session {
+func fail(err error) {
 	log.Println(err)
 	mygo.NewWindow(mygo.WindowOptions{
 		Title: appTitle, Width: 560, Height: 220,
@@ -294,5 +420,4 @@ func fail(err error) *nvimproc.Session {
 			})
 		}),
 	})
-	return nil
 }

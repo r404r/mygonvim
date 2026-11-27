@@ -106,6 +106,15 @@ type mouseOp struct {
 
 // Start runs nvim --embed and attaches this program as its UI.
 func Start(o Options) (*Session, error) {
+	return StartContext(context.Background(), o)
+}
+
+// StartContext lets a closing window cancel the initial RPC handshake.
+// After a successful handshake, only Close owns the child's lifetime.
+func StartContext(ctx context.Context, o Options) (*Session, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	if o.Bin == "" {
 		return nil, errors.New("nvimproc: no nvim executable")
 	}
@@ -143,6 +152,26 @@ func Start(o Options) (*Session, error) {
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("start %s: %w", o.Bin, err)
 	}
+	cancelled := make(chan struct{})
+	stopCancel := context.AfterFunc(ctx, func() {
+		_ = cmd.Process.Kill()
+		close(cancelled)
+	})
+	stopped := false
+	stopHandshake := func() bool {
+		if stopped {
+			return true
+		}
+		stopped = true
+		if stopCancel() {
+			return true
+		}
+		// Cancellation won the race. Join its callback before reporting success
+		// or releasing the process, so a late kill cannot hit an active session.
+		<-cancelled
+		return false
+	}
+	defer stopHandshake()
 	nv, err := nvim.New(out, in, in, logf)
 	if err != nil {
 		cmd.Process.Kill()
@@ -226,6 +255,10 @@ func Start(o Options) (*Session, error) {
 	if err := nv.AttachUI(o.Cols, o.Rows, UIOptions()); err != nil {
 		s.Close()
 		return nil, fmt.Errorf("nvim_ui_attach: %w (nvim said: %q)", err, s.stderr.String())
+	}
+	if !stopHandshake() {
+		s.Close()
+		return nil, ctx.Err()
 	}
 	go s.work()
 	if o.OnWindowLayout != nil {

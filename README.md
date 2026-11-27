@@ -78,7 +78,19 @@ Closing the window runs `:confirm qa`: Neovim asks about unsaved changes on its 
 
 File > Exit and the application Quit action use the same confirmation path. During OS logout or shutdown, MyGo ignores cancellation of window close events; the application cannot keep the window open for this prompt. Save your work before ending the OS session. Native close gestures still need macOS and Windows testing.
 
-### Logs
+### Login shell environment on macOS
+
+By default, a macOS launch whose parent is launchd (PID 1) and whose stdout is not a terminal imports the login shell's exported environment. This covers Finder/Dock launches; a direct terminal launch normally keeps its inherited environment. The window opens first, then Neovim starts after the import. The shell is `$SHELL`, otherwise the account's `UserShell`, otherwise `/bin/zsh`; only executable absolute paths named `zsh` or `bash` are accepted. It runs once per launch with `-l -i -c`, null stdin and the home directory as its working directory. No environment snapshot is cached on disk.
+
+Shell PATH entries come first, followed by unique inherited entries; this PATH is also used to find Neovim. Portable `XDG_*` paths and inherited `MYGONVIM_*` controls stay in effect. Shell changes to `XDG_CONFIG_HOME` or `NVIM_APPNAME` can select another Neovim configuration outside portable mode. Shell `unset` does not remove inherited variables. `TERM` is neither set nor imported; the Terminal section of `:checkhealth` can still report it missing.
+
+Set `"loginEnv": false` in the application's `settings.json` to disable this, or launch with `MYGONVIM_LOGIN_ENV=0`. `MYGONVIM_LOGIN_ENV=1` overrides the setting and launch detection (and permits an explicit Unix diagnostic run on Linux). An inherited `MYGONVIM_LOGIN_ENV_PROBE` always prevents another probe, even with `=1`; the probe sets it to `1` so shell startup files can skip expensive work. Windows does not run a probe. About shows Pending, Imported, Skipped, or Fallback and its reason.
+
+Timeout (5 seconds), unsupported shells, malformed or incomplete output, and output beyond 1 MiB fall back to the inherited environment without an import error dialog. Probe logs contain counts, duration, exit status and the shell's file name, never variable values or raw shell output. `MYGONVIM_LOGIN_ENV_DEBUG=1` additionally logs variable names. Exported credentials reach Neovim and its children, as they do when launched from a terminal, and startup files run on every probe. Fish and other shells are unsupported; prompt/directory hooks such as direnv may not run, and bash login profiles must source `.bashrc` if its setup is needed. A terminal process backgrounded with redirected stdout and reparented to PID 1 can be misclassified and import twice. Finder/Dock behavior and startup timing still need real macOS testing.
+
+While startup is pending, keyboard input, text paste and commands are buffered in arrival order (at most 1 MiB and 1024 requests combined). Once Neovim is ready, the latest window size is applied first, then the buffered requests. A new request exceeding either limit is ignored as a whole and logged once without its contents. Failed or cancelled startup discards the buffer. Mouse events before the session is ready are ignored.
+
+### Log output
 
 RPC request failures and `nvim_error_event` notifications are written to `mygonvim.log` in MyGo's application log directory (`PathLogs`). In portable mode this is `data/mygonvim/logs/mygonvim.log`. The log also goes to stderr when one is available. It starts over when the next write would exceed 1 MiB; an oversized existing log is cleared on startup. If the log file cannot be opened, logging continues on stderr. Error events include their type and message; a recent call name is only a hint and does not identify the failing request.
 
