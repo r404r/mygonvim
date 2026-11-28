@@ -41,6 +41,30 @@ func prepareEnvironment(ctx context.Context, opts loginenv.Options, portableDir 
 	return result
 }
 
+// startSession waits for the editor's first draw to measure the window, so the
+// initial UI attachment uses its grid rather than the blank model's size.
+// The startup worker waits here; the UI thread remains free to draw or close.
+func (l *lateBackend) startSession(ctx context.Context, opts nvimproc.Options) (*nvimproc.Session, error) {
+	l.mu.Lock()
+	if l.cols < 1 || l.rows < 1 {
+		if l.sizeReady == nil {
+			l.sizeReady = make(chan struct{})
+		}
+		ready := l.sizeReady
+		l.mu.Unlock()
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ready:
+		}
+		l.mu.Lock()
+	}
+	opts.Cols, opts.Rows = l.cols, l.rows
+	l.initialCols, l.initialRows = l.cols, l.rows
+	l.mu.Unlock()
+	return nvimproc.StartContext(ctx, opts)
+}
+
 type lateLuaClient struct{ late *lateBackend }
 
 func (l lateLuaClient) ExecLua(code string, result interface{}, args ...interface{}) error {

@@ -70,13 +70,15 @@ func main() {
 // lateBackend lets the editor exist before the session does: the editor needs a
 // Backend, the session needs the editor's OnRedraw.
 type lateBackend struct {
-	be         atomic.Pointer[nvimproc.Session]
-	mu         sync.Mutex
-	cols, rows int
-	pending    []pendingInput
-	bytes      int
-	failed     bool
-	overflow   bool
+	be                       atomic.Pointer[nvimproc.Session]
+	mu                       sync.Mutex
+	cols, rows               int
+	sizeReady                chan struct{}
+	initialCols, initialRows int
+	pending                  []pendingInput
+	bytes                    int
+	failed                   bool
+	overflow                 bool
 }
 
 const maxPendingBytes = 1 << 20
@@ -105,7 +107,7 @@ func (l *lateBackend) attach(s *nvimproc.Session) bool {
 		return false
 	}
 	l.be.Store(s)
-	if l.cols > 0 && l.rows > 0 {
+	if l.cols > 0 && l.rows > 0 && (l.cols != l.initialCols || l.rows != l.initialRows) {
 		s.Resize(l.cols, l.rows)
 	}
 	for _, input := range l.pending {
@@ -148,7 +150,11 @@ func (l *lateBackend) Input(k string) { l.send('i', k) }
 func (l *lateBackend) Resize(c, r int) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	first := l.cols == 0 || l.rows == 0
 	l.cols, l.rows = c, r
+	if first && c > 0 && r > 0 && l.sizeReady != nil {
+		close(l.sizeReady)
+	}
 	if s := l.be.Load(); s != nil {
 		s.Resize(c, r)
 	}
@@ -365,8 +371,8 @@ func start(opts options) (*startup, io.Closer) {
 		if ctx.Err() != nil || err != nil {
 			return
 		}
-		sess, err := nvimproc.StartContext(ctx, nvimproc.Options{
-			Bin: bin, Args: opts.files, Env: result.Env, Cols: cfg.Cols, Rows: cfg.Rows,
+		sess, err := late.startSession(ctx, nvimproc.Options{
+			Bin: bin, Args: opts.files, Env: result.Env,
 			Dir: nvimStartDir(runtime.GOOS, cwd, cwdErr, home, homeErr), InitCmds: initCmds(saved),
 			Version: displayedVersion(), Clipboard: clip, OnRedraw: ed.OnRedraw,
 			OnWindowLayout: ed.OnWindowLayout, OnExit: func(err error) {

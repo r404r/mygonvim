@@ -130,6 +130,21 @@ func TestResizeFollowsTheWindow(t *testing.T) {
 	}
 }
 
+func TestFirstFrameReportsSizeEvenWhenItMatchesBlankModel(t *testing.T) {
+	first := newEnv(t, 640, 400)
+	size := first.be.lastResize()
+	be := &fake{}
+	ed := NewEditor(be, Config{FontFamily: "monospace", FontSize: 14, Cols: size[0], Rows: size[1]}, Hooks{})
+	tt := ui.NewTester(ed.View, 640, 400)
+	tt.Frame()
+	if got := be.lastResize(); got != size {
+		t.Fatalf("first frame reported %v, want %v even when the blank model matches", got, size)
+	}
+	if len(be.resizes) != 1 {
+		t.Fatalf("unchanged window sent %d size reports, want one", len(be.resizes))
+	}
+}
+
 func TestDrawsBackgroundsAndText(t *testing.T) {
 	e := newEnv(t, 640, 400)
 	e.ed.OnRedraw(
