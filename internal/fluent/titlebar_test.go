@@ -141,6 +141,29 @@ func TestTitleButtonsAvoidSystemButtons(t *testing.T) {
 	}
 }
 
+func TestTitleMenuActionsAfterRebuildingChrome(t *testing.T) {
+	chosen := 0
+	tt := titleTester(appmenu.Template("windows", appmenu.Actions{Open: func() { chosen++ }}), 800, 480)
+	for i := 0; i < 3; i++ {
+		// Full screen removes the title controls, then restores them in a new build.
+		tt.SetTitleBar(ui.TitleBar{})
+		tt.Frame()
+		if tt.HasText("File") {
+			t.Fatal("title is visible in full screen")
+		}
+		tt.SetTitleBar(ui.TitleBar{Height: 32, Right: 138})
+		tt.Frame()
+		click(t, tt, "File")
+		tt.Key(0, ui.KeyDown)
+		tt.Key(0, ui.KeyEnter)
+		tt.Frame()
+		tt.Frame()
+		if chosen != i+1 || len(tt.Menu()) != 0 {
+			t.Fatalf("round %d: actions=%d menu=%v", i, chosen, tt.Menu())
+		}
+	}
+}
+
 func TestInactiveTitleTextPixels(t *testing.T) {
 	for _, dark := range []bool{false, true} {
 		tt := titleTester(appmenu.Template("windows", appmenu.Actions{}), 800, 480)

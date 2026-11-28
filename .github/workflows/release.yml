@@ -5,7 +5,7 @@
 # `go tool mygo build` links that version into the app; MYGO_LDFLAGS also
 # sets main.version so `mygonvim -version` matches the tag.
 #
-# Commands follow the README and MyGo v0.9.0:
+# Commands follow the README and MyGo v0.10.0:
 #   go tool mygo build -platform darwin/arm64,darwin/amd64
 #   go tool mygo build -platform windows/amd64 -skip-installer
 # Signing, notarization, auto-updates, and a bundled Neovim are not
@@ -18,6 +18,9 @@ on:
 
 permissions:
   contents: write
+
+env:
+  GOFLAGS: -tags=mygo_nowebview
 
 jobs:
   test:

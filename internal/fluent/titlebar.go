@@ -48,7 +48,7 @@ func (b *TitleBar) View(c *ui.Context) bool {
 			if !item.IsVisible() {
 				continue
 			}
-			button := ui.Button(c, "").Label(item.Label).Key(item.Label).Height(24).Padding(0, 10).Shrink(1).Disabled(!item.IsEnabled())
+			button := ui.Button(c.Key(item.Label), "").Label(item.Label).Height(24).Padding(0, 10).Shrink(1).Disabled(!item.IsEnabled())
 			button.Children(func() { ui.Text(c, item.Label).FontSize(12).SingleLine() })
 			buttons[i] = button
 			if _, _, over := button.PointerPosition(); over && item.IsEnabled() {

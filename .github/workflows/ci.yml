@@ -10,6 +10,7 @@ permissions:
 
 env:
   NVIM_VERSION: v0.12.6
+  GOFLAGS: -tags=mygo_nowebview
 
 defaults:
   run:
@@ -81,7 +82,7 @@ jobs:
           path: test-results.jsonl
 
   cross-build:
-    name: build ${{ matrix.goos }}/${{ matrix.goarch }} (no cgo)
+    name: build ${{ matrix.goos }}/${{ matrix.goarch }} ${{ matrix.tags }} (no cgo)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -91,10 +92,12 @@ jobs:
           - {goos: darwin, goarch: arm64}
           - {goos: darwin, goarch: amd64}
           - {goos: windows, goarch: amd64}
+          - {goos: windows, goarch: amd64, tags: mygo_nowebview}
     env:
       CGO_ENABLED: "0"
       GOOS: ${{ matrix.goos }}
       GOARCH: ${{ matrix.goarch }}
+      GOFLAGS: -tags=${{ matrix.tags }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -102,3 +105,44 @@ jobs:
           go-version-file: go.mod
       - run: go vet ./...
       - run: go build -o /dev/null .
+
+  package:
+    name: package ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: ubuntu-latest, platform: windows}
+          - {os: macos-latest, platform: macos}
+    runs-on: ${{ matrix.os }}
+    env:
+      CGO_ENABLED: "0"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Package Windows portable build
+        if: matrix.platform == 'windows'
+        run: |
+          go tool mygo build -platform windows/amd64 -skip-installer
+          test -s build/windows-amd64/MyGoNVim.exe
+          mkdir -p build/windows-amd64/data
+          (cd build/windows-amd64 && zip -r ../windows-amd64-portable.zip . -x '.mygo-files')
+      - name: Package macOS apps and disk images
+        if: matrix.platform == 'macos'
+        run: |
+          go tool mygo build -platform darwin/arm64,darwin/amd64 -skip-notarize
+          for arch in arm64 amd64; do
+            dir="build/darwin-$arch"
+            test -s "$dir/MyGoNVim.app/Contents/MacOS/MyGoNVim"
+            ditto -c -k --keepParent "$dir/MyGoNVim.app" "build/macos-$arch.zip"
+            test -n "$(find "$dir" -name '*.dmg' -print -quit)"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: packages-${{ matrix.platform }}
+          path: |
+            build/*.zip
+            build/darwin-*/*.dmg
+          if-no-files-found: error

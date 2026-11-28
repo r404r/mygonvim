@@ -161,13 +161,23 @@ go vet ./... && go test ./...                     # the window tests use a headl
 NVIM_BIN=/path/to/nvim go test ./...              # also runs the tests against a real nvim --embed
 MYGONVIM_SCREENSHOT=shot.png NVIM_BIN=... go test -run RealNvim ./internal/gui
 CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build .
+CGO_ENABLED=0 GOFLAGS=-tags=mygo_nowebview go tool mygo build -platform windows/amd64 -skip-installer
 ```
+
+MyGo is pinned to v0.10.0. CI and release packages use `mygo_nowebview`,
+which removes WebView2 from the Windows backend for this native UI app.
+The tag has no effect on macOS or Linux. In PowerShell, set
+`$env:GOFLAGS='-tags=mygo_nowebview'` before running the build command.
+Use `go tool mygo vet .` to check UI element lifetimes as well as Go code.
 
 CI runs `go vet ./...` and all package tests on Linux, macOS and Windows,
 including headless MyGo views and real `nvim --embed` sessions. All three
 runners download the official Neovim release pinned by `NVIM_VERSION` in
 `.github/workflows/ci.yml`. Linux also uses `-race`; macOS and Windows run
 without it. The four cross-build targets continue to use `CGO_ENABLED=0`.
+Windows is also cross-built without the tag. Pull requests package the
+Windows portable folder and both macOS architectures, with downloads in
+the `packages-*` workflow artifacts.
 
 CI sets `NVIM_BIN` to the downloaded executable's absolute path: a missing
 or broken executable fails the real Neovim tests instead of skipping them.
